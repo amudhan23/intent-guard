@@ -26,9 +26,16 @@ pub enum Error {
     MissingEnv(&'static str),
     Http(reqwest::Error),
     /// Rain answered with a non-2xx status.
-    Api { endpoint: String, status: reqwest::StatusCode, body: String },
+    Api {
+        endpoint: String,
+        status: reqwest::StatusCode,
+        body: String,
+    },
     /// Rain answered 2xx but the payload was not shaped how we expected.
-    MalformedResponse { endpoint: String, detail: String },
+    MalformedResponse {
+        endpoint: String,
+        detail: String,
+    },
     Crypto(String),
 }
 
@@ -38,12 +45,15 @@ impl std::fmt::Display for Error {
             // Only the variable name is printed, never the value.
             Error::MissingEnv(var) => write!(f, "missing environment variable {var}"),
             Error::Http(e) => write!(f, "http transport error: {e}"),
-            Error::Api { endpoint, status, body } => {
-                write!(f, "rain api {endpoint} returned {status}: {body}")
-            }
-            Error::MalformedResponse { endpoint, detail } => {
-                write!(f, "rain api {endpoint} returned an unexpected payload: {detail}")
-            }
+            Error::Api {
+                endpoint,
+                status,
+                body,
+            } => write!(f, "rain api {endpoint} returned {status}: {body}"),
+            Error::MalformedResponse { endpoint, detail } => write!(
+                f,
+                "rain api {endpoint} returned an unexpected payload: {detail}"
+            ),
             Error::Crypto(detail) => write!(f, "session id generation failed: {detail}"),
         }
     }
@@ -138,10 +148,17 @@ fn session_from_secret(secret_key: &str) -> Result<Session, Error> {
         .map_err(|e| Error::Crypto(format!("could not parse sandbox public key: {e}")))?;
 
     let encrypted = public_key
-        .encrypt(&mut rand::thread_rng(), Oaep::new::<Sha1>(), secret_key_base64.as_bytes())
+        .encrypt(
+            &mut rand::thread_rng(),
+            Oaep::new::<Sha1>(),
+            secret_key_base64.as_bytes(),
+        )
         .map_err(|e| Error::Crypto(format!("rsa-oaep encryption failed: {e}")))?;
 
-    Ok(Session { secret_key: secret_key.to_string(), session_id: BASE64.encode(encrypted) })
+    Ok(Session {
+        secret_key: secret_key.to_string(),
+        session_id: BASE64.encode(encrypted),
+    })
 }
 
 // ------------------------------------------------------------- api calls ----
@@ -152,7 +169,11 @@ async fn json_or_api_error(endpoint: &str, response: reqwest::Response) -> Resul
     let body = response.text().await?;
 
     if !status.is_success() {
-        return Err(Error::Api { endpoint: endpoint.to_string(), status, body });
+        return Err(Error::Api {
+            endpoint: endpoint.to_string(),
+            status,
+            body,
+        });
     }
 
     serde_json::from_str(&body).map_err(|e| Error::MalformedResponse {
@@ -215,7 +236,10 @@ pub async fn issue_scoped_card(
 ) -> Result<String, Error> {
     let endpoint = "POST /issuing/users/{userId}/cards/scoped";
     let response = reqwest::Client::new()
-        .post(format!("{RAIN_BASE_URL}/issuing/users/{}/cards/scoped", config.user_id))
+        .post(format!(
+            "{RAIN_BASE_URL}/issuing/users/{}/cards/scoped",
+            config.user_id
+        ))
         .header("Api-Key", &config.api_key)
         .header("sessionid", session_id)
         .json(&serde_json::json!({ "amountInUSDCents": amount_cents }))
@@ -263,7 +287,9 @@ pub async fn settle_transaction(
 ) -> Result<(), Error> {
     let endpoint = "POST /simulate/transactions/{id}/settle";
     let response = reqwest::Client::new()
-        .post(format!("{RAIN_BASE_URL}/simulate/transactions/{transaction_id}/settle"))
+        .post(format!(
+            "{RAIN_BASE_URL}/simulate/transactions/{transaction_id}/settle"
+        ))
         .header("Api-Key", &config.api_key)
         .json(&serde_json::json!({ "amount": amount_cents }))
         .send()
@@ -287,10 +313,24 @@ pub struct RainResult {
     pub status: String,
 }
 
+/// Whether an authorization should be captured into a real charge.
+///
+/// Authorization only places a hold; settlement is what actually moves money.
+/// Keeping the two apart lets a caller model a purchase that falls through
+/// after the hold — the card was valid, the booking still did not happen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Settlement {
+    /// Capture the authorization. The charge completes.
+    Settle,
+    /// Stop after authorization. Nothing is captured, no charge completes.
+    AuthorizeOnly,
+}
+
 /// Default MCC: 4511, airlines/air carriers.
 pub const DEFAULT_MCC: &str = "4511";
 
-/// Runs the full Rain lifecycle: session -> scoped card -> authorize -> settle.
+/// Runs the Rain lifecycle: session -> scoped card -> authorize -> settle,
+/// where the final step happens only under [`Settlement::Settle`].
 ///
 /// Takes an [`ApprovedAction`], not a `ProposedAction`. A blocked or escalated
 /// action cannot be turned into one, so this function is unreachable from any
@@ -299,6 +339,7 @@ pub async fn execute_rain_flow(
     approved: &ApprovedAction<'_>,
     config: &RainConfig,
     mcc: &str,
+    settlement: Settlement,
 ) -> Result<RainResult, Error> {
     let action = approved.action();
     let amount_cents = (action.amount * 100.0) as u64;
@@ -307,9 +348,20 @@ pub async fn execute_rain_flow(
     let card_id = issue_scoped_card(config, amount_cents, &session.session_id).await?;
     let transaction_id =
         authorize_transaction(config, &card_id, amount_cents, &action.description, mcc).await?;
-    settle_transaction(config, &transaction_id, amount_cents).await?;
 
-    Ok(RainResult { card_id, transaction_id, status: "settled".to_string() })
+    let status = match settlement {
+        Settlement::Settle => {
+            settle_transaction(config, &transaction_id, amount_cents).await?;
+            "settled"
+        }
+        Settlement::AuthorizeOnly => "authorized — not settled",
+    };
+
+    Ok(RainResult {
+        card_id,
+        transaction_id,
+        status: status.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -360,7 +412,10 @@ mod tests {
 
     #[test]
     fn rejects_a_non_hex_secret() {
-        assert!(matches!(session_from_secret("not-hex!!"), Err(Error::Crypto(_))));
+        assert!(matches!(
+            session_from_secret("not-hex!!"),
+            Err(Error::Crypto(_))
+        ));
     }
 
     #[test]

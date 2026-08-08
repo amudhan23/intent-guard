@@ -20,7 +20,10 @@ impl<'a> ApprovedAction<'a> {
 /// Outcome of a full evaluation: either a capability to spend, or a refusal.
 #[derive(Debug)]
 pub enum Verdict<'a> {
-    Approved { token: ApprovedAction<'a>, decision: Decision },
+    Approved {
+        token: ApprovedAction<'a>,
+        decision: Decision,
+    },
     Denied(Decision),
 }
 
@@ -66,7 +69,9 @@ pub struct AttemptTracker {
 
 impl AttemptTracker {
     pub fn new() -> Self {
-        Self { attempts: HashMap::new() }
+        Self {
+            attempts: HashMap::new(),
+        }
     }
 
     /// Records one more attempt on `task_id` and returns the new total.
@@ -110,7 +115,10 @@ pub fn evaluate<'a>(
 
     let decision = check_intent(task, action);
     if decision.is_approved() {
-        Verdict::Approved { token: ApprovedAction(action), decision }
+        Verdict::Approved {
+            token: ApprovedAction(action),
+            decision,
+        }
     } else {
         Verdict::Denied(decision)
     }
@@ -147,14 +155,22 @@ mod tests {
     fn blocks_destination_mismatch() {
         let decision = check_intent(&task(), &action("Miami", 450.0));
         assert_eq!(decision.status, "blocked");
-        assert!(decision.reason.contains("destination mismatch"), "{}", decision.reason);
+        assert!(
+            decision.reason.contains("destination mismatch"),
+            "{}",
+            decision.reason
+        );
     }
 
     #[test]
     fn blocks_over_budget() {
         let decision = check_intent(&task(), &action("NYC", 750.0));
         assert_eq!(decision.status, "blocked");
-        assert!(decision.reason.contains("over budget"), "{}", decision.reason);
+        assert!(
+            decision.reason.contains("over budget"),
+            "{}",
+            decision.reason
+        );
     }
 
     #[test]
@@ -166,7 +182,11 @@ mod tests {
     #[test]
     fn destination_check_precedes_budget_check() {
         let decision = check_intent(&task(), &action("Miami", 750.0));
-        assert!(decision.reason.contains("destination mismatch"), "{}", decision.reason);
+        assert!(
+            decision.reason.contains("destination mismatch"),
+            "{}",
+            decision.reason
+        );
     }
 
     #[test]
