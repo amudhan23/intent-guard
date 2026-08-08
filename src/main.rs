@@ -1,209 +1,177 @@
-use bytes::Bytes;
-use clap::Parser;
-use http_body_util::{BodyExt, Empty, Full, combinators::BoxBody};
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper::{Method, Request, Response, StatusCode, body::Body};
-use hyper_util::rt::TokioIo;
-use serde::Deserialize;
-use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::net::{TcpListener, TcpStream};
+mod intent_check;
+mod rain_client;
+mod types;
 
-mod scanner;
+use intent_check::{AttemptTracker, Verdict, evaluate};
+use rain_client::{DEFAULT_MCC, RainConfig};
+use types::{ProposedAction, Task};
 
-#[derive(Parser)]
-struct RequestParsed {
-    method: String,
-    path: String,
-    body: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Rules {
-    suspicious_body_patterns: Vec<String>,
-    risky_privilege_paths: Vec<String>,
-}
-
-async fn echo(
-    req: Request<hyper::body::Incoming>,
-    rules: Arc<Rules>,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
-    match (req.method(), req.uri().path()) {
-        (&Method::PUT, path) => {
-            if scanner::scan_privilege(req.method().as_str(), path, &rules.risky_privilege_paths) {
-                let mut resp = Response::new(full("Privileged error"));
-                *resp.status_mut() = hyper::StatusCode::FORBIDDEN;
-                return Ok(resp);
-            }
-            match forward_to_backend(req, "httpbin.org", 80).await {
-                Ok(resp) => Ok(resp),
-                Err(e) => {
-                    eprintln!("Forwarding failed: {}", e);
-                    let mut resp = Response::new(full("Backend unavailable"));
-                    *resp.status_mut() = hyper::StatusCode::BAD_GATEWAY;
-                    Ok(resp)
-                }
-            }
-        }
-
-        (&Method::GET, path) => {
-            let method = req.method().clone();
-            let uri = req.uri().clone();
-            let new_req = Request::builder()
-                .method(method)
-                .uri(uri)
-                .body(Empty::<Bytes>::new())
-                .unwrap();
-            match forward_to_backend(new_req, "httpbin.org", 80).await {
-                Ok(resp) => Ok(resp),
-                Err(e) => {
-                    eprintln!("Forwarding failed: {}", e);
-                    let mut resp = Response::new(full("Backend unavailable"));
-                    *resp.status_mut() = hyper::StatusCode::BAD_GATEWAY;
-                    Ok(resp)
-                }
-            }
-        }
-
-        (&Method::POST, path) => {
-            let method = req.method().clone();
-            let uri = req.uri().clone();
-
-            let max = req.body().size_hint().upper().unwrap_or(u64::MAX);
-            if max > 1024 * 64 {
-                let mut resp = Response::new(full("Body too big"));
-                *resp.status_mut() = hyper::StatusCode::PAYLOAD_TOO_LARGE;
-                return Ok(resp);
-            }
-
-            let whole_body = req.collect().await?.to_bytes();
-            let body_str = String::from_utf8_lossy(&whole_body);
-
-            if let Some(_) = scanner::scan_body(&body_str, &rules.suspicious_body_patterns) {
-                let mut resp = Response::new(full("Privileged error"));
-                *resp.status_mut() = hyper::StatusCode::FORBIDDEN;
-                return Ok(resp);
-            }
-
-            let new_req = Request::builder()
-                .method(method)
-                .uri(uri)
-                .body(Full::new(whole_body)) // reuse the bytes you already collected
-                .unwrap();
-
-            match forward_to_backend(new_req, "httpbin.org", 80).await {
-                Ok(resp) => Ok(resp),
-                Err(e) => {
-                    eprintln!("Forwarding failed: {}", e);
-                    let mut resp = Response::new(full("Backend unavailable"));
-                    *resp.status_mut() = hyper::StatusCode::BAD_GATEWAY;
-                    Ok(resp)
-                }
-            }
-        }
-
-        _ => {
-            let mut not_found = Response::new(empty());
-            *not_found.status_mut() = StatusCode::NOT_FOUND;
-            Ok(not_found)
-        }
-    }
-}
-
-fn empty() -> BoxBody<Bytes, hyper::Error> {
-    Empty::<Bytes>::new()
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-fn full<T: Into<Bytes>>(chunk: T) -> BoxBody<Bytes, hyper::Error> {
-    Full::new(chunk.into())
-        .map_err(|never| match never {})
-        .boxed()
-}
-
-async fn forward_to_backend<B>(
-    req: Request<B>,
-    target_host: &str,
-    target_port: u16,
-) -> Result<Response<BoxBody<Bytes, hyper::Error>>, Box<dyn std::error::Error + Send + Sync>>
-where
-    B: hyper::body::Body + Send + 'static,
-    B::Data: Send,
-    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-{
-    let address = format!("{}:{}", target_host, target_port);
-    let stream = TcpStream::connect(&address).await?; // io::Error, auto-boxed
-    let io = TokioIo::new(stream);
-
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?; // hyper::Error, auto-boxed
-
-    tokio::task::spawn(async move {
-        if let Err(err) = conn.await {
-            eprintln!("Connection to backend failed: {:?}", err);
-        }
-    });
-
-    let (mut parts, body) = req.into_parts();
-    parts
-        .headers
-        .insert(hyper::header::HOST, target_host.parse()?); // also auto-boxed
-    let outbound_req = Request::from_parts(parts, body);
-
-    let res = sender.send_request(outbound_req).await?; // hyper::Error, auto-boxed
-
-    let (parts, body) = res.into_parts();
-    let boxed_body = body.boxed();
-    Ok(Response::from_parts(parts, boxed_body))
-}
+/// Escalate once an agent has taken this many swings at the same task.
+const STUCK_THRESHOLD: u32 = 3;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
 
-    let listener = TcpListener::bind(addr).await?;
-    println!("Listening on http://{}", addr);
+    banner();
 
-    let rules_content = match std::fs::read_to_string("rules.yaml") {
-        Ok(file_content) => file_content,
-        Err(e) => {
-            eprintln!("Error reading rules file : {}", e);
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "rules.yaml file not found",
-            )) as Box<dyn std::error::Error + Send + Sync>);
-        }
+    let config = RainConfig::from_env()?;
+
+    println!("Funding sandbox collateral...");
+    rain_client::fund_collateral(&config).await?;
+    println!("  collateral funded\n");
+
+    let task = Task {
+        destination: "NYC".to_string(),
+        max_budget: 500.0,
+        purpose: "hackathon attendance".to_string(),
     };
 
-    let rules: Rules = match serde_yaml::from_str(&rules_content) {
-        Ok(r) => r,
-        Err(e) => {
-            eprint!("Error parsing yaml : {}", e);
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "rules.yaml file not found",
-            )) as Box<dyn std::error::Error + Send + Sync>);
-        }
+    let mut tracker = AttemptTracker::new();
+
+    scenario_one(&task, &mut tracker, &config).await;
+    scenario_two(&task, &mut tracker, &config).await;
+    scenario_three(&task, &mut tracker, &config).await;
+
+    println!("{}", "=".repeat(74));
+    println!("Rain sees only payment data. IntentGuard sees the task.");
+    println!("Blocked and escalated actions never reach the payment layer at all.");
+    println!("{}", "=".repeat(74));
+
+    Ok(())
+}
+
+// ------------------------------------------------------------- scenarios ----
+
+async fn scenario_one(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+    header(1, "Clean approval");
+
+    let action = ProposedAction {
+        task_id: "scenario-1".to_string(),
+        destination: "NYC".to_string(),
+        amount: 480.0,
+        description: "Delta flight to NYC".to_string(),
     };
 
-    let rules = Arc::new(rules);
+    print_task(task);
+    print_action(&action);
+    run(task, &action, tracker, config).await;
+}
 
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
+async fn scenario_two(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+    header(2, "Intent mismatch");
 
-        let rules = Arc::clone(&rules);
+    let action = ProposedAction {
+        task_id: "scenario-2".to_string(),
+        destination: "Miami".to_string(),
+        amount: 450.0,
+        description: "Flight to Miami".to_string(),
+    };
 
-        let service = service_fn(move |req| {
-            let rules = Arc::clone(&rules);
-            async move { echo(req, rules).await }
-        });
+    print_task(task);
+    print_action(&action);
+    println!("  Note: Rain's Agent Control Layer would allow this — an airline");
+    println!("        charge of $450.00 is under any sane per-transaction limit.");
+    println!("        Only the task context reveals it is the wrong city.\n");
+    run(task, &action, tracker, config).await;
+}
 
-        tokio::task::spawn(async move {
-            if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
-                println!("Error serving connection: {:?}", err);
-            }
-        });
+async fn scenario_three(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+    header(3, "Non-convergence");
+
+    print_task(task);
+    println!("  The agent retries the same task three times. Each action is");
+    println!("  individually valid; the pattern is the problem.\n");
+
+    let attempts = [
+        ("JetBlue flight to NYC", 460.0),
+        ("United flight to NYC", 470.0),
+        ("American flight to NYC", 455.0),
+    ];
+
+    for (index, (description, amount)) in attempts.iter().enumerate() {
+        let action = ProposedAction {
+            task_id: "scenario-3".to_string(),
+            destination: "NYC".to_string(),
+            amount: *amount,
+            description: description.to_string(),
+        };
+
+        println!("  --- attempt {} of {} ---", index + 1, attempts.len());
+        print_action(&action);
+        run(task, &action, tracker, config).await;
     }
+}
+
+// --------------------------------------------------------------- plumbing ---
+
+/// The single gate. `execute_rain_flow` takes the approval token that only
+/// `Verdict::Approved` carries, so the denied arm below has no way to spend.
+async fn run(
+    task: &Task,
+    action: &ProposedAction,
+    tracker: &mut AttemptTracker,
+    config: &RainConfig,
+) {
+    match evaluate(task, action, tracker, STUCK_THRESHOLD) {
+        Verdict::Approved { token, decision } => {
+            print_decision(&decision);
+            println!("  Proceeding to Rain...");
+
+            match rain_client::execute_rain_flow(&token, config, DEFAULT_MCC).await {
+                Ok(result) => {
+                    println!("  RAIN CARD ISSUED AND CHARGE SETTLED");
+                    println!("    card_id        : {}", result.card_id);
+                    println!("    transaction_id : {}", result.transaction_id);
+                    println!("    status         : {}", result.status);
+                }
+                Err(e) => {
+                    println!("  RAIN CALL FAILED: {e}");
+                }
+            }
+        }
+        Verdict::Denied(decision) => {
+            print_decision(&decision);
+            println!("  No Rain API calls made — request blocked before reaching payment layer");
+        }
+    }
+    println!();
+}
+
+// ----------------------------------------------------------------- output ---
+
+fn banner() {
+    println!();
+    println!("{}", "=".repeat(74));
+    println!("  IntentGuard — intent validation before Rain's payment layer");
+    println!("{}", "=".repeat(74));
+    println!();
+}
+
+fn header(number: u8, title: &str) {
+    println!("{}", "-".repeat(74));
+    println!("  SCENARIO {number} — {title}");
+    println!("{}", "-".repeat(74));
+}
+
+fn print_task(task: &Task) {
+    println!("  TASK");
+    println!("    destination : {}", task.destination);
+    println!("    max_budget  : ${:.2}", task.max_budget);
+    println!("    purpose     : {}", task.purpose);
+    println!();
+}
+
+fn print_action(action: &ProposedAction) {
+    println!("  PROPOSED ACTION");
+    println!("    task_id     : {}", action.task_id);
+    println!("    destination : {}", action.destination);
+    println!("    amount      : ${:.2}", action.amount);
+    println!("    description : {}", action.description);
+    println!();
+}
+
+fn print_decision(decision: &types::Decision) {
+    println!("  DECISION    : {}", decision.status.to_uppercase());
+    println!("  REASON      : {}", decision.reason);
 }

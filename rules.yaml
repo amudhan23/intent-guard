@@ -1,9 +1,0 @@
-suspicious_body_patterns:
-  - "DROP TABLE"
-  - "; --"
-  - "OR '1'='1'"
-  - "<script>"
-  - "../../"
-
-risky_privilege_paths:
-  - "/admin/"

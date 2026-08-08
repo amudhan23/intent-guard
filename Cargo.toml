@@ -1,15 +1,18 @@
 [package]
-name = "req-guard"
+name = "intentguard"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-http-body-util = "0.1.4"
-hyper = { version = "1.11.0", features = ["full"] }
-hyper-util = { version = "0.1.20", features = ["full"] }
+base64 = "0.23.1"
+dotenvy = "0.15.7"
+hex = "0.4.3"
+# rand 0.8 / sha1 0.10 are pinned to the rand_core 0.6 + digest 0.10 generation
+# that rsa 0.9 builds against. Newer majors do not satisfy its trait bounds.
+rand = "0.8"
+reqwest = { version = "0.13.4", features = ["json"] }
+rsa = "0.9.10"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-serde_yaml = "0.9.34"
+sha1 = "0.10"
 tokio = { version = "1.53.1", features = ["full"] }
-bytes = "1.4.0"
-clap = { version = "4.6.4", features = ["derive"] }
