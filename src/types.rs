@@ -28,15 +28,24 @@ pub struct Decision {
 
 impl Decision {
     pub fn approved(reason: impl Into<String>) -> Self {
-        Self { status: "approved".to_string(), reason: reason.into() }
+        Self {
+            status: "approved".to_string(),
+            reason: reason.into(),
+        }
     }
 
     pub fn blocked(reason: impl Into<String>) -> Self {
-        Self { status: "blocked".to_string(), reason: reason.into() }
+        Self {
+            status: "blocked".to_string(),
+            reason: reason.into(),
+        }
     }
 
     pub fn escalated(reason: impl Into<String>) -> Self {
-        Self { status: "escalated".to_string(), reason: reason.into() }
+        Self {
+            status: "escalated".to_string(),
+            reason: reason.into(),
+        }
     }
 
     pub fn is_approved(&self) -> bool {

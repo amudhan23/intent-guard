@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tracker = AttemptTracker::new();
 
+    scenario_zero(&mut tracker, &config).await;
     scenario_one(&task, &mut tracker, &config).await;
     scenario_one_b(&task, &mut tracker, &config).await;
     scenario_two(&task, &mut tracker, &config).await;
@@ -45,6 +46,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 // ------------------------------------------------------------- scenarios ----
+
+/// The request used when nobody types one. The parsing is still live — only
+/// the sentence is fixed, so a scripted run has something reliable to show.
+const EXAMPLE_REQUEST: &str = "I need to get to New York City for a hackathon happening \
+     August 8th and 9th. My budget is $500. This is for me, traveling alone.";
+
+/// Scenario 0's task id. Separate from scenario 1B's so the two live scenarios
+/// are tracked as the distinct tasks they are.
+const SCENARIO_ZERO_TASK_ID: &str = "scenario-0";
+
+/// Reads a request from stdin when `INTENTGUARD_INTERACTIVE=1`, so a judge can
+/// type their own. Falls back to the example on an unset flag or empty input.
+fn live_request() -> String {
+    if std::env::var("INTENTGUARD_INTERACTIVE").as_deref() != Ok("1") {
+        return EXAMPLE_REQUEST.to_string();
+    }
+
+    println!("  Where do you want to go, and what is your budget?");
+    print!("  > ");
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+
+    let mut typed = String::new();
+    match std::io::stdin().read_line(&mut typed) {
+        Ok(_) if !typed.trim().is_empty() => typed.trim().to_string(),
+        _ => {
+            println!("  (nothing typed — using the example request)");
+            EXAMPLE_REQUEST.to_string()
+        }
+    }
+}
+
+/// End to end with nothing hardcoded but the sentence: plain English becomes a
+/// task, an agent proposes a booking for it, and IntentGuard rules on it.
+///
+/// Because neither the task nor the action is scripted, this can legitimately
+/// come out blocked. That is not a failure of the demo — it is the demo.
+async fn scenario_zero(tracker: &mut AttemptTracker, config: &RainConfig) {
+    header(
+        0,
+        "Fully live: natural language -> task -> agent -> decision",
+    );
+
+    let request = live_request();
+    println!("  User request: {request}\n");
+
+    println!("  Parsing task from natural language...");
+    let task = match agent::parse_task_from_prompt(&request).await {
+        Ok(task) => task,
+        Err(e) => {
+            println!("  COULD NOT PARSE A VALID TASK: {e}");
+            println!("  In production this would prompt the user to clarify.");
+            println!("  Skipping to the scripted scenarios.\n");
+            return;
+        }
+    };
+
+    println!("  Claude extracted this task — none of it is hardcoded:");
+    print_task(&task);
+
+    println!("  Asking a real Claude agent to propose a booking for this task...\n");
+
+    // No fallback here, unlike scenario 1B: its hardcoded NYC booking would be
+    // the wrong answer for whatever task the user actually described.
+    let mut action = match agent::agent_propose_action(&task).await {
+        Ok(action) => action,
+        Err(e) => {
+            println!("  THE AGENT DID NOT PROPOSE ANYTHING: {e}");
+            println!("  Skipping to the scripted scenarios.\n");
+            return;
+        }
+    };
+    action.task_id = SCENARIO_ZERO_TASK_ID.to_string();
+
+    print_action(&action);
+    run(&task, &action, tracker, config, Settlement::Settle).await;
+}
 
 async fn scenario_one(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
     header(1, "Clean approval");
