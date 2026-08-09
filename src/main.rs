@@ -1,12 +1,14 @@
 mod agent;
 mod intent_check;
+mod monad_client;
 mod rain_client;
 mod types;
 
 use agent::Origin;
 use intent_check::{AttemptTracker, Verdict, evaluate};
+use monad_client::MonadConfig;
 use rain_client::{DEFAULT_MCC, RainConfig, Settlement};
-use types::{ProposedAction, Task};
+use types::{Decision, ProposedAction, Task};
 
 /// Escalate once an agent has taken this many swings at the same task.
 const STUCK_THRESHOLD: u32 = 3;
@@ -18,6 +20,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     banner();
 
     let config = RainConfig::from_env()?;
+
+    // The audit log is optional by design. A missing key or an unreachable
+    // testnet degrades the demo to exactly what it was before Monad existed,
+    // rather than stopping a decision from being made.
+    let monad = match MonadConfig::from_env() {
+        Ok(monad) => {
+            println!(
+                "Monad audit log active — logging decisions from {}",
+                monad.address()
+            );
+            println!();
+            Some(monad)
+        }
+        Err(e) => {
+            println!("Monad audit log disabled: {e}");
+            println!("Decisions are still made and enforced; they just are not anchored on chain.");
+            println!();
+            None
+        }
+    };
+    let monad = monad.as_ref();
 
     println!("Funding sandbox collateral...");
     rain_client::fund_collateral(&config).await?;
@@ -31,11 +54,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tracker = AttemptTracker::new();
 
-    scenario_zero(&mut tracker, &config).await;
-    scenario_one(&task, &mut tracker, &config).await;
-    scenario_one_b(&task, &mut tracker, &config).await;
-    scenario_two(&task, &mut tracker, &config).await;
-    scenario_three(&task, &mut tracker, &config).await;
+    scenario_zero(&mut tracker, &config, monad).await;
+    scenario_one(&task, &mut tracker, &config, monad).await;
+    scenario_one_b(&task, &mut tracker, &config, monad).await;
+    scenario_two(&task, &mut tracker, &config, monad).await;
+    scenario_three(&task, &mut tracker, &config, monad).await;
+
+    verify_one_decision_on_chain(monad).await;
 
     println!("{}", "=".repeat(74));
     println!("Rain sees only payment data. IntentGuard sees the task.");
@@ -82,7 +107,11 @@ fn live_request() -> String {
 ///
 /// Because neither the task nor the action is scripted, this can legitimately
 /// come out blocked. That is not a failure of the demo — it is the demo.
-async fn scenario_zero(tracker: &mut AttemptTracker, config: &RainConfig) {
+async fn scenario_zero(
+    tracker: &mut AttemptTracker,
+    config: &RainConfig,
+    monad: Option<&MonadConfig>,
+) {
     header(
         0,
         "Fully live: natural language -> task -> agent -> decision",
@@ -120,10 +149,15 @@ async fn scenario_zero(tracker: &mut AttemptTracker, config: &RainConfig) {
     action.task_id = SCENARIO_ZERO_TASK_ID.to_string();
 
     print_action(&action);
-    run(&task, &action, tracker, config, Settlement::Settle).await;
+    run(&task, &action, tracker, config, Settlement::Settle, monad).await;
 }
 
-async fn scenario_one(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+async fn scenario_one(
+    task: &Task,
+    tracker: &mut AttemptTracker,
+    config: &RainConfig,
+    monad: Option<&MonadConfig>,
+) {
     header(1, "Clean approval");
 
     let action = ProposedAction {
@@ -135,14 +169,19 @@ async fn scenario_one(task: &Task, tracker: &mut AttemptTracker, config: &RainCo
 
     print_task(task);
     print_action(&action);
-    run(task, &action, tracker, config, Settlement::Settle).await;
+    run(task, &action, tracker, config, Settlement::Settle, monad).await;
 }
 
 /// Scenario 1 again, except a real Claude agent writes the proposed action.
 ///
 /// The gate does not care where the action came from: it runs the same
 /// `evaluate` -> `execute_rain_flow` pipeline as every other scenario.
-async fn scenario_one_b(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+async fn scenario_one_b(
+    task: &Task,
+    tracker: &mut AttemptTracker,
+    config: &RainConfig,
+    monad: Option<&MonadConfig>,
+) {
     header_b(1, "Clean approval, proposed by a live agent");
 
     print_task(task);
@@ -159,10 +198,15 @@ async fn scenario_one_b(task: &Task, tracker: &mut AttemptTracker, config: &Rain
     }
 
     print_action(&action);
-    run(task, &action, tracker, config, Settlement::Settle).await;
+    run(task, &action, tracker, config, Settlement::Settle, monad).await;
 }
 
-async fn scenario_two(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+async fn scenario_two(
+    task: &Task,
+    tracker: &mut AttemptTracker,
+    config: &RainConfig,
+    monad: Option<&MonadConfig>,
+) {
     header(2, "Intent mismatch");
 
     let action = ProposedAction {
@@ -177,7 +221,7 @@ async fn scenario_two(task: &Task, tracker: &mut AttemptTracker, config: &RainCo
     println!("  Note: Rain's Agent Control Layer would allow this — an airline");
     println!("        charge of $450.00 is under any sane per-transaction limit.");
     println!("        Only the task context reveals it is the wrong city.\n");
-    run(task, &action, tracker, config, Settlement::Settle).await;
+    run(task, &action, tracker, config, Settlement::Settle, monad).await;
 }
 
 /// One booking the agent tries and does not land.
@@ -222,7 +266,12 @@ fn scenario_three_action(description: &str, amount: f64) -> ProposedAction {
     }
 }
 
-async fn scenario_three(task: &Task, tracker: &mut AttemptTracker, config: &RainConfig) {
+async fn scenario_three(
+    task: &Task,
+    tracker: &mut AttemptTracker,
+    config: &RainConfig,
+    monad: Option<&MonadConfig>,
+) {
     header(3, "Non-convergence");
 
     print_task(task);
@@ -236,7 +285,7 @@ async fn scenario_three(task: &Task, tracker: &mut AttemptTracker, config: &Rain
 
         println!("  --- attempt {} ---", index + 1);
         print_action(&action);
-        run(task, &action, tracker, config, attempt.settlement).await;
+        run(task, &action, tracker, config, attempt.settlement, monad).await;
         println!("  BOOKING FAILED: {}\n", attempt.failure);
     }
 
@@ -250,7 +299,7 @@ async fn scenario_three(task: &Task, tracker: &mut AttemptTracker, config: &Rain
         SCENARIO_3_ATTEMPTS.len()
     );
     println!("  escalates to human review rather than letting the agent try again.\n");
-    run(task, &action, tracker, config, Settlement::Settle).await;
+    run(task, &action, tracker, config, Settlement::Settle, monad).await;
 }
 
 // --------------------------------------------------------------- plumbing ---
@@ -263,6 +312,7 @@ async fn run(
     tracker: &mut AttemptTracker,
     config: &RainConfig,
     settlement: Settlement,
+    monad: Option<&MonadConfig>,
 ) {
     match evaluate(task, action, tracker, STUCK_THRESHOLD) {
         Verdict::Approved { token, decision } => {
@@ -289,11 +339,92 @@ async fn run(
                     println!("  RAIN CALL FAILED: {e}");
                 }
             }
+
+            anchor_decision(monad, task, action, &decision).await;
         }
         Verdict::Denied(decision) => {
             print_decision(&decision);
             println!("  No Rain API calls made — request blocked before reaching payment layer");
+
+            // Blocked and escalated decisions are anchored too. An audit trail
+            // that only recorded approvals would answer the least interesting
+            // question: the valuable claim is that this system refused, and
+            // when.
+            anchor_decision(monad, task, action, &decision).await;
         }
+    }
+    println!();
+}
+
+// ------------------------------------------------------------ audit trail ---
+
+/// Writes one decision to the Monad audit log, best effort.
+///
+/// This runs after the Rain flow has already finished, so nothing it does can
+/// change an outcome. A failure is reported and stepped over — the decision
+/// stands whether or not the testnet was reachable.
+async fn anchor_decision(
+    monad: Option<&MonadConfig>,
+    task: &Task,
+    action: &ProposedAction,
+    decision: &Decision,
+) {
+    let Some(monad) = monad else {
+        return;
+    };
+
+    let hash = monad_client::hash_decision(task, action, decision);
+
+    match monad_client::log_decision_to_monad(monad, hash, &decision.status).await {
+        Ok(tx_hash) => println!("  Decision logged to Monad — tx: {tx_hash}"),
+        Err(e) => println!("  (Monad logging skipped: {e})"),
+    }
+}
+
+/// Reads one decision back off the chain, to close the demo on something this
+/// program cannot fake.
+///
+/// Every other line of output is this program's own account of what it did. The
+/// values printed here came from Monad, so they hold up even if you assume the
+/// rest of the output is a lie.
+async fn verify_one_decision_on_chain(monad: Option<&MonadConfig>) {
+    let Some(monad) = monad else {
+        return;
+    };
+
+    println!("{}", "-".repeat(74));
+    println!("  Independently verifying one of the logged decisions directly from");
+    println!("  Monad, not from our own program's memory:");
+    println!("{}", "-".repeat(74));
+
+    let count = match monad_client::record_count(monad).await {
+        Ok(count) => count,
+        Err(e) => {
+            println!("  (could not reach the audit log: {e})\n");
+            return;
+        }
+    };
+
+    if count == 0 {
+        println!("  The audit log is empty — nothing was written this run.\n");
+        return;
+    }
+
+    // The most recent record: whatever this run wrote last.
+    let index = count - 1;
+
+    match monad_client::read_decision_from_monad(monad, index).await {
+        Ok((hash, status, timestamp)) => {
+            println!("  record #{index} of {count} on chain");
+            println!("    decision hash : {hash}");
+            println!("    status        : {status}");
+            println!("    timestamp     : {timestamp}");
+            println!();
+            println!("  The hash commits to the task, the proposed action, and the reason.");
+            println!("  Anyone holding the original task can recompute it and prove this");
+            println!("  decision is the one that was made — and the chain shows nothing else.");
+        }
+        Err(e) => println!("  (could not read record {index}: {e})"),
     }
     println!();
 }
