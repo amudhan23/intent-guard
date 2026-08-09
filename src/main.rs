@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// The request used when nobody types one. The parsing is still live — only
 /// the sentence is fixed, so a scripted run has something reliable to show.
 const EXAMPLE_REQUEST: &str = "I need to get to New York City for a hackathon happening \
-     August 8th and 9th. My budget is $500. This is for me, traveling alone.";
+     August 15th and 16th. My budget is $500. This is for me, traveling alone.";
 
 /// Scenario 0's task id. Separate from scenario 1B's so the two live scenarios
 /// are tracked as the distinct tasks they are.
