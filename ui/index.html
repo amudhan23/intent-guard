@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IntentGuard — Raingentic Commerce Hackathon, Team 36</title>
+<style>
+  :root {
+    --bg:        #0d1117;
+    --panel:     #151b23;
+    --panel-2:   #1c232d;
+    --border:    #2a3441;
+    --border-lo: #222b36;
+    --text:      #e6edf3;
+    --text-dim:  #9aa7b4;
+    --text-fade: #6d7b8a;
+
+    --ok:        #3fb950;
+    --ok-bg:     rgba(63,185,80,.10);
+    --ok-br:     rgba(63,185,80,.40);
+
+    --no:        #f85149;
+    --no-bg:     rgba(248,81,73,.10);
+    --no-br:     rgba(248,81,73,.40);
+
+    --warn:      #e3a008;
+    --warn-bg:   rgba(227,160,8,.10);
+    --warn-br:   rgba(227,160,8,.40);
+
+    --link:      #6cb6ff;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: 0 24px 96px;
+  }
+
+  a { color: var(--link); }
+
+  /* ---------- header ---------- */
+
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 64px 0 44px;
+    margin-bottom: 48px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--text-fade);
+    margin: 0 0 20px;
+  }
+
+  h1 {
+    font-size: 34px;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -.02em;
+    margin: 0 0 8px;
+    max-width: 24ch;
+  }
+
+  h1 .accent { color: var(--ok); }
+
+  .pitch {
+    font-size: 19px;
+    line-height: 1.55;
+    color: var(--text-dim);
+    margin: 0 0 28px;
+    max-width: 62ch;
+  }
+
+  .pitch strong { color: var(--text); font-weight: 600; }
+
+  .sub {
+    font-size: 14px;
+    color: var(--text-fade);
+    margin: 0;
+  }
+
+  /* ---------- section scaffolding ---------- */
+
+  section { margin-bottom: 56px; }
+
+  h2 {
+    font-size: 13px;
+    font-family: var(--mono);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--text-fade);
+    font-weight: 600;
+    margin: 0 0 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-lo);
+  }
+
+  .note {
+    font-size: 15px;
+    color: var(--text-dim);
+    max-width: 72ch;
+  }
+
+  /* ---------- scenario cards ---------- */
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+
+  .card.approved { border-left: 4px solid var(--ok); }
+  .card.blocked  { border-left: 4px solid var(--no); }
+  .card.escalated{ border-left: 4px solid var(--warn); }
+
+  .card-head {
+    padding: 20px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-lo);
+  }
+
+  .card-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+  .snum {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--text-fade);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+
+  .sname { font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+
+  .sdesc {
+    flex-basis: 100%;
+    font-size: 14.5px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  .card-body { padding: 22px 24px 24px; }
+
+  /* ---------- task / action blocks ---------- */
+
+  .cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+
+  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } }
+
+  .block {
+    background: var(--panel-2);
+    border: 1px solid var(--border-lo);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+
+  .block-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--text-fade);
+    margin-bottom: 10px;
+  }
+
+  dl { margin: 0; }
+
+  .row {
+    display: flex;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.9;
+  }
+
+  .row dt {
+    color: var(--text-fade);
+    min-width: 86px;
+    flex-shrink: 0;
+  }
+
+  .row dd { margin: 0; color: var(--text); word-break: break-word; }
+
+  /* ---------- verdict ---------- */
+
+  .verdict {
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border: 1px solid;
+  }
+
+  .approved  .verdict { background: var(--ok-bg);   border-color: var(--ok-br); }
+  .blocked   .verdict { background: var(--no-bg);   border-color: var(--no-br); }
+  .escalated .verdict { background: var(--warn-bg); border-color: var(--warn-br); }
+
+  .verdict-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .08em;
+  }
+
+  .approved  .verdict-line { color: var(--ok); }
+  .blocked   .verdict-line { color: var(--no); }
+  .escalated .verdict-line { color: var(--warn); }
+
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+
+  .reason {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+    opacity: .92;
+  }
+
+  .reason::before { content: "reason: "; color: var(--text-fade); }
+
+  /* ---------- receipts ---------- */
+
+  .receipts {
+    display: grid;
+    gap: 8px;
+  }
+
+  .receipt {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    background: var(--panel-2);
+    border: 1px solid var(--border-lo);
+    border-radius: 6px;
+    padding: 9px 13px;
+  }
+
+  .receipt .k { color: var(--text-fade); min-width: 122px; flex-shrink: 0; }
+  .receipt .v { word-break: break-all; }
+
+  .receipt a { text-decoration: none; border-bottom: 1px solid rgba(108,182,255,.35); }
+  .receipt a:hover { border-bottom-color: var(--link); }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    color: var(--text-fade);
+    margin-left: 8px;
+    white-space: nowrap;
+  }
+
+  .noapi {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text-dim);
+    padding: 9px 13px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+
+  /* ---------- attempts (scenario 3) ---------- */
+
+  .attempt {
+    border-top: 1px solid var(--border-lo);
+    padding-top: 20px;
+    margin-top: 20px;
+  }
+
+  .attempt-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--text-fade);
+    margin-bottom: 14px;
+  }
+
+  .attempt .verdict.a { background: var(--ok-bg);   border-color: var(--ok-br); }
+  .attempt .verdict.a .verdict-line { color: var(--ok); }
+  .attempt .verdict.e { background: var(--warn-bg); border-color: var(--warn-br); }
+  .attempt .verdict.e .verdict-line { color: var(--warn); }
+
+  /* ---------- callouts ---------- */
+
+  .callout {
+    background: var(--panel-2);
+    border: 1px solid var(--border-lo);
+    border-left: 3px solid var(--border);
+    border-radius: 0 8px 8px 0;
+    padding: 13px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    margin-bottom: 18px;
+  }
+
+  .callout strong { color: var(--text); font-weight: 600; }
+
+  /* ---------- terminal ---------- */
+
+  pre {
+    background: #0a0e14;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.75;
+    margin: 0;
+    color: var(--text);
+    tab-size: 4;
+  }
+
+  pre .c-dim  { color: var(--text-fade); }
+  pre .c-no   { color: var(--no);   font-weight: 600; }
+  pre .c-ok   { color: var(--ok);   font-weight: 600; }
+  pre .c-warn { color: var(--warn); }
+  pre .c-kw   { color: #d2a8ff; }
+  pre .c-ty   { color: #7ee787; }
+  pre .c-fn   { color: var(--link); }
+  pre .c-cm   { color: var(--text-fade); font-style: italic; }
+
+  /* ---------- guard section ---------- */
+
+  .guard {
+    border: 1px solid var(--warn-br);
+    background: linear-gradient(180deg, rgba(227,160,8,.055), rgba(227,160,8,.015));
+    border-radius: 10px;
+    padding: 24px;
+  }
+
+  .guard h3, .proof h3 {
+    margin: 0 0 6px;
+    font-size: 19px;
+    font-weight: 620;
+    letter-spacing: -.01em;
+  }
+
+  .guard .lead, .proof .lead {
+    margin: 0 0 20px;
+    font-size: 15px;
+    color: var(--text-dim);
+    max-width: 74ch;
+  }
+
+  .proof {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    border-radius: 10px;
+    padding: 24px;
+  }
+
+  .proof-grid { display: grid; gap: 18px; }
+
+  .proof-step-label {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--text-fade);
+    margin-bottom: 9px;
+  }
+
+  .verdict-strip {
+    margin-top: 18px;
+    border: 1px solid var(--ok-br);
+    background: var(--ok-bg);
+    border-radius: 8px;
+    padding: 13px 16px;
+    font-size: 14.5px;
+    color: var(--text);
+  }
+
+  .verdict-strip strong { color: var(--ok); }
+
+  /* ---------- chain readback ---------- */
+
+  .chain {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+  }
+
+  /* ---------- footer ---------- */
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding-top: 28px;
+    font-size: 14px;
+    color: var(--text-fade);
+    line-height: 1.75;
+  }
+
+  .flinks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    margin-bottom: 18px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+  }
+
+  footer p { margin: 0 0 10px; max-width: 78ch; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Team 36 · Raingentic Commerce Hackathon · August 2026</p>
+  <h1>Intent<span class="accent">Guard</span></h1>
+  <p class="pitch">
+    <strong>Rain controls whether an agent <em>can</em> spend. IntentGuard verifies whether the spend
+    <em>matches what the user asked for</em>.</strong>
+  </p>
+  <p class="sub">
+    Every result on this page is captured verbatim from one real <code>cargo run</code> — live Claude API calls,
+    real Rain sandbox transactions, and audit records written to Monad testnet. Nothing here is mocked.
+  </p>
+</header>
+
+<section>
+  <h2>The gap</h2>
+  <p class="note">
+    Rain's Agent Control Layer enforces limits on the <em>payment</em>: merchant category, amount, frequency,
+    timing, active cards. Every one of those is a property of the transaction. None is a property of the
+    <em>task</em>. An agent told "get me to NYC for under $500" that books a $450 flight to Miami passes every
+    control Rain has — right MCC, right amount, first attempt of the day. IntentGuard sits one layer above the
+    money and checks the one thing the payment rails structurally cannot see.
+  </p>
+</section>
+
+<section>
+  <h2>Five scenarios — real captured output</h2>
+
+  <!-- ============ SCENARIO 0 ============ -->
+  <article class="card approved">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="snum">SCENARIO 0</span>
+        <span class="sname">Fully live</span>
+        <span class="sdesc">Plain English → Claude extracts the task → a Claude agent proposes the booking → IntentGuard rules on it. Nothing scripted but the sentence, so the outcome is not predetermined.</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="callout">
+        <strong>User typed:</strong> "I need to get to New York City for a hackathon happening August 8th and 9th.
+        My budget is $500. This is for me, traveling alone."
+      </div>
+      <div class="cols">
+        <div class="block">
+          <div class="block-label">Task — extracted by Claude, not hardcoded</div>
+          <dl>
+            <div class="row"><dt>destination</dt><dd>New York City</dd></div>
+            <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
+            <div class="row"><dt>purpose</dt><dd>attending a hackathon on August 8th and 9th</dd></div>
+          </dl>
+        </div>
+        <div class="block">
+          <div class="block-label">Proposed action — written by a live Claude agent</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-0</dd></div>
+            <div class="row"><dt>destination</dt><dd>New York City</dd></div>
+            <div class="row"><dt>amount</dt><dd>$412.00</dd></div>
+            <div class="row"><dt>description</dt><dd>Delta flight SFO to JFK, departing Aug 7, returning Aug 10</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="verdict">
+        <div class="verdict-line"><span class="dot"></span>APPROVED</div>
+        <div class="reason">action matches task intent (destination 'New York City', $412.00 within $500.00 budget)</div>
+      </div>
+      <div class="receipts">
+        <div class="receipt"><span class="k">rain card_id</span><span class="v">eddd42e5-472e-4426-bbe3-8e30407e2927</span></div>
+        <div class="receipt"><span class="k">rain transaction</span><span class="v">f10a4413-de7e-4dbb-a7ec-de75ffa1cdca<span class="tag">settled</span></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0xa6669afccb21a8d62b93a4c02ac96756262be86cc183dedb908e7bb97547bf18" target="_blank" rel="noopener">0xa6669afccb21a8d62b93a4c02ac96756262be86cc183dedb908e7bb97547bf18</a></span></div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ============ SCENARIO 1 ============ -->
+  <article class="card approved">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="snum">SCENARIO 1</span>
+        <span class="sname">Clean approval</span>
+        <span class="sdesc">The deterministic baseline. Action matches the task on both destination and budget, so the gate mints an approval token and the full Rain lifecycle runs: scoped card issued, charge authorized, charge settled.</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="cols">
+        <div class="block">
+          <div class="block-label">Task</div>
+          <dl>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
+            <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+          </dl>
+        </div>
+        <div class="block">
+          <div class="block-label">Proposed action</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-1</dd></div>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>amount</dt><dd>$480.00</dd></div>
+            <div class="row"><dt>description</dt><dd>Delta flight to NYC</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="verdict">
+        <div class="verdict-line"><span class="dot"></span>APPROVED</div>
+        <div class="reason">action matches task intent (destination 'NYC', $480.00 within $500.00 budget)</div>
+      </div>
+      <div class="receipts">
+        <div class="receipt"><span class="k">rain card_id</span><span class="v">d98961f6-bb4f-454b-8166-6f5595d85aaa</span></div>
+        <div class="receipt"><span class="k">rain transaction</span><span class="v">6a709173-5429-4edb-a681-b0fa985bd605<span class="tag">settled</span></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x9cab0be32ebf66a19a63b4b390ed67974de20f6f48b2f81a3797f6085f17fb81" target="_blank" rel="noopener">0x9cab0be32ebf66a19a63b4b390ed67974de20f6f48b2f81a3797f6085f17fb81</a></span></div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ============ SCENARIO 1B ============ -->
+  <article class="card approved">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="snum">SCENARIO 1B</span>
+        <span class="sname">Live agent proposal</span>
+        <span class="sdesc">Same task as scenario 1, but a real Claude agent writes the action instead of a literal. The gate does not care where the action came from — identical evaluate → execute_rain_flow path.</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="cols">
+        <div class="block">
+          <div class="block-label">Task</div>
+          <dl>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
+            <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+          </dl>
+        </div>
+        <div class="block">
+          <div class="block-label">Proposed action — generated live</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-1b</dd></div>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>amount</dt><dd>$412.50</dd></div>
+            <div class="row"><dt>description</dt><dd>Delta flight SFO to JFK (NYC) for hackathon attendance</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="verdict">
+        <div class="verdict-line"><span class="dot"></span>APPROVED</div>
+        <div class="reason">action matches task intent (destination 'NYC', $412.50 within $500.00 budget)</div>
+      </div>
+      <div class="receipts">
+        <div class="receipt"><span class="k">rain card_id</span><span class="v">10dbc31b-70a7-46b5-a64d-6d57b0ed42ab</span></div>
+        <div class="receipt"><span class="k">rain transaction</span><span class="v">77f27734-ba3f-4b52-ad68-f6b36d985165<span class="tag">settled</span></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0xacba136865616130d2d77f381f41148c764d426353257d38442fccdd2fc3cb46" target="_blank" rel="noopener">0xacba136865616130d2d77f381f41148c764d426353257d38442fccdd2fc3cb46</a></span></div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ============ SCENARIO 2 ============ -->
+  <article class="card blocked">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="snum">SCENARIO 2</span>
+        <span class="sname">Intent mismatch</span>
+        <span class="sdesc">The core case. A $450 flight to Miami against an NYC task. Rain's Agent Control Layer would allow this — airline MCC, sane amount, first attempt. Only the task context reveals it is the wrong city.</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="cols">
+        <div class="block">
+          <div class="block-label">Task</div>
+          <dl>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
+            <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+          </dl>
+        </div>
+        <div class="block">
+          <div class="block-label">Proposed action</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-2</dd></div>
+            <div class="row"><dt>destination</dt><dd>Miami</dd></div>
+            <div class="row"><dt>amount</dt><dd>$450.00</dd></div>
+            <div class="row"><dt>description</dt><dd>Flight to Miami</dd></div>
+          </dl>
+        </div>
+      </div>
+      <div class="callout">
+        Rain's Agent Control Layer would allow this — an airline charge of $450.00 is under any sane
+        per-transaction limit. <strong>Only the task context reveals it is the wrong city.</strong>
+      </div>
+      <div class="verdict">
+        <div class="verdict-line"><span class="dot"></span>BLOCKED</div>
+        <div class="reason">destination mismatch: task targets 'NYC' but action goes to 'Miami'</div>
+      </div>
+      <div class="noapi">No Rain API calls made — request blocked before reaching the payment layer.</div>
+      <div class="receipts">
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x9523ad8ad1f3adffd6bbac04e7ffb6dcd3133d2141564c9ad4490d0774a7874b" target="_blank" rel="noopener">0x9523ad8ad1f3adffd6bbac04e7ffb6dcd3133d2141564c9ad4490d0774a7874b</a></span></div>
+      </div>
+    </div>
+  </article>
+
+  <!-- ============ SCENARIO 3 ============ -->
+  <article class="card escalated">
+    <div class="card-head">
+      <div class="card-title">
+        <span class="snum">SCENARIO 3</span>
+        <span class="sname">Non-convergence</span>
+        <span class="sdesc">The agent keeps trying and keeps failing. Each action it proposes is individually valid — the pattern is the problem. Two attempts authorize and are deliberately never settled; the third never reaches Rain at all.</span>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="block" style="margin-bottom:4px">
+        <div class="block-label">Task — shared across all three attempts</div>
+        <dl>
+          <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+          <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
+          <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+        </dl>
+      </div>
+
+      <div class="attempt">
+        <div class="attempt-label">Attempt 1</div>
+        <div class="block" style="margin-bottom:16px">
+          <div class="block-label">Proposed action</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-3</dd></div>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>amount</dt><dd>$460.00</dd></div>
+            <div class="row"><dt>description</dt><dd>JetBlue flight to NYC</dd></div>
+          </dl>
+        </div>
+        <div class="verdict a">
+          <div class="verdict-line"><span class="dot"></span>APPROVED</div>
+          <div class="reason">action matches task intent (destination 'NYC', $460.00 within $500.00 budget)</div>
+        </div>
+        <div class="noapi">Authorization succeeded but settlement was deliberately skipped — flight unavailable, agent must retry. <strong>No money moved.</strong></div>
+        <div class="receipts">
+          <div class="receipt"><span class="k">rain card_id</span><span class="v">56cda097-882d-4dfb-bc3d-0c8430a71f6c</span></div>
+          <div class="receipt"><span class="k">rain transaction</span><span class="v">6b01a8c4-9027-461c-9f37-87a2db6aa921<span class="tag">authorized — not settled</span></span></div>
+          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x0e6be3c236e1f21ef2cbcb1aaa3200ccdb2221bf4fe52593c29aeaa9fce8b23d" target="_blank" rel="noopener">0x0e6be3c236e1f21ef2cbcb1aaa3200ccdb2221bf4fe52593c29aeaa9fce8b23d</a></span></div>
+        </div>
+        <div class="noapi" style="margin-top:8px;margin-bottom:0">BOOKING FAILED: flight sold out, retrying</div>
+      </div>
+
+      <div class="attempt">
+        <div class="attempt-label">Attempt 2</div>
+        <div class="block" style="margin-bottom:16px">
+          <div class="block-label">Proposed action</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-3</dd></div>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>amount</dt><dd>$470.00</dd></div>
+            <div class="row"><dt>description</dt><dd>United flight to NYC</dd></div>
+          </dl>
+        </div>
+        <div class="verdict a">
+          <div class="verdict-line"><span class="dot"></span>APPROVED</div>
+          <div class="reason">action matches task intent (destination 'NYC', $470.00 within $500.00 budget)</div>
+        </div>
+        <div class="noapi">Authorization succeeded but settlement was deliberately skipped — flight unavailable, agent must retry. <strong>No money moved.</strong></div>
+        <div class="receipts">
+          <div class="receipt"><span class="k">rain card_id</span><span class="v">dc0fcfdf-5ff2-4ebf-b68e-71e0f2c0a5b5</span></div>
+          <div class="receipt"><span class="k">rain transaction</span><span class="v">e35de0a2-3d7f-4b66-8070-e9b8439a75bc<span class="tag">authorized — not settled</span></span></div>
+          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0xe204ad757fc3d5eea9a725442f1233f99b10790022c44b8238074822efded17c" target="_blank" rel="noopener">0xe204ad757fc3d5eea9a725442f1233f99b10790022c44b8238074822efded17c</a></span></div>
+        </div>
+        <div class="noapi" style="margin-top:8px;margin-bottom:0">BOOKING FAILED: no seats available, retrying</div>
+      </div>
+
+      <div class="attempt">
+        <div class="attempt-label">Attempt 3 — escalation</div>
+        <div class="block" style="margin-bottom:16px">
+          <div class="block-label">Proposed action</div>
+          <dl>
+            <div class="row"><dt>task_id</dt><dd>scenario-3</dd></div>
+            <div class="row"><dt>destination</dt><dd>NYC</dd></div>
+            <div class="row"><dt>amount</dt><dd>$455.00</dd></div>
+            <div class="row"><dt>description</dt><dd>American flight to NYC</dd></div>
+          </dl>
+        </div>
+        <div class="callout">
+          Pattern detected: 2 failed attempts on this task. IntentGuard escalates to human review rather than
+          letting the agent try again. <strong>This action is individually valid — it is blocked on the pattern alone.</strong>
+        </div>
+        <div class="verdict e">
+          <div class="verdict-line"><span class="dot"></span>ESCALATED</div>
+          <div class="reason">non-convergence: 3 attempts on task 'scenario-3' (threshold 3) — handing back to the user</div>
+        </div>
+        <div class="noapi">No Rain API calls made — request blocked before reaching the payment layer.</div>
+        <div class="receipts">
+          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x0d6fb7abf2dc885f2307e2f735a8f52ab0f021302f220ae3135c734ed406cc00" target="_blank" rel="noopener">0x0d6fb7abf2dc885f2307e2f735a8f52ab0f021302f220ae3135c734ed406cc00</a></span></div>
+        </div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<!-- ============ NO-FABRICATION GUARD ============ -->
+<section>
+  <h2>The no-fabrication guard</h2>
+  <div class="guard">
+    <h3>A vague request is an error to report, not a gap to fill in</h3>
+    <p class="lead">
+      <code>parse_task_from_prompt</code> has <strong>no fallback, on purpose</strong>. Inventing a destination or
+      a budget the user never gave would fabricate the exact intent this project exists to check. The guard is
+      enforced twice: the model is instructed to return <code>{"error": ...}</code> when a field is missing,
+      <em>and</em> the parser independently rejects an empty destination, a non-finite or non-positive budget, and
+      an empty purpose — in case a model answers in the right shape with nothing in it.
+    </p>
+    <div class="proof-step-label">Live capture — <code>INTENTGUARD_INTERACTIVE=1 cargo run</code></div>
+<pre><span class="c-dim">  Where do you want to go, and what is your budget?</span>
+<span class="c-dim">  &gt;</span> book me something nice
+  User request: book me something nice
+
+  Parsing task from natural language...
+  <span class="c-no">COULD NOT PARSE A VALID TASK: the request is incomplete — destination and budget are both missing</span>
+  <span class="c-dim">In production this would prompt the user to clarify.</span>
+  <span class="c-dim">Skipping to the scripted scenarios.</span></pre>
+    <div class="verdict-strip">
+      <strong>This is the designed behavior, not a failure.</strong> No task invented, no agent invoked,
+      no Rain call, no money path opened. The system refuses to guess what you meant.
+    </div>
+  </div>
+</section>
+
+<!-- ============ COMPILE-TIME GUARANTEE ============ -->
+<section>
+  <h2>The compile-time guarantee</h2>
+  <div class="proof">
+    <h3>Not tested against — structurally impossible</h3>
+    <p class="lead">
+      Every other safety property here is a runtime check. This one is not. <code>ApprovedAction</code> wraps a
+      <code>&amp;ProposedAction</code> in a field private to <code>intent_check</code>, so the only code in the
+      program that can construct one is <code>evaluate</code>, on the branch where it returns
+      <code>Verdict::Approved</code>. Rain's entry point takes that type and nothing else.
+    </p>
+
+    <div class="proof-grid">
+      <div>
+        <div class="proof-step-label">1 — The token type · src/intent_check.rs</div>
+<pre><span class="c-kw">pub struct</span> <span class="c-ty">ApprovedAction</span>&lt;<span class="c-warn">'a</span>&gt;(&amp;<span class="c-warn">'a</span> <span class="c-ty">ProposedAction</span>);   <span class="c-cm">// field is private to this module</span></pre>
+      </div>
+
+      <div>
+        <div class="proof-step-label">2 — The payment entry point · src/rain_client.rs</div>
+<pre><span class="c-kw">pub async fn</span> <span class="c-fn">execute_rain_flow</span>(
+    approved: &amp;<span class="c-ty">ApprovedAction</span>&lt;<span class="c-warn">'_</span>&gt;,   <span class="c-cm">// not &amp;ProposedAction</span>
+    config: &amp;<span class="c-ty">RainConfig</span>,
+    mcc: &amp;<span class="c-kw">str</span>,
+    settlement: <span class="c-ty">Settlement</span>,
+) -&gt; <span class="c-ty">Result</span>&lt;<span class="c-ty">RainResult</span>, <span class="c-ty">Error</span>&gt;</pre>
+      </div>
+
+      <div>
+        <div class="proof-step-label">3 — What happens if you try to bypass it</div>
+        <p class="lead" style="margin-bottom:12px">
+          Editing <code>main.rs</code> to hand Rain the raw <code>ProposedAction</code> inside the approval token —
+          the smallest possible bypass — produces this. Captured from <code>cargo build</code>:
+        </p>
+<pre><span class="c-dim">   Compiling intentguard v0.1.0 (/home/amd/rainHack/intentguard)</span>
+<span class="c-no">error[E0308]</span>: mismatched types
+   --&gt; src/main.rs:322:50
+    |
+322 |             match rain_client::execute_rain_flow(token.action(), config, DEFAULT_MCC, settlement).await {
+    |                   ------------------------------ <span class="c-no">^^^^^^^^^^^^^^ expected `&amp;ApprovedAction&lt;'_&gt;`, found `&amp;ProposedAction`</span>
+    |                   |
+    |                   arguments to this function are incorrect
+    |
+    = note: expected reference `&amp;ApprovedAction&lt;'_&gt;`
+               found reference `&amp;ProposedAction`
+note: function defined here
+   --&gt; src/rain_client.rs:338:14
+    |
+338 | pub async fn execute_rain_flow(
+    |              <span class="c-no">^^^^^^^^^^^^^^^^^</span>
+339 |     approved: &amp;ApprovedAction&lt;'_&gt;,
+    |     <span class="c-no">-----------------------------</span>
+
+For more information about this error, try `rustc --explain E0308`.
+<span class="c-no">error</span>: could not compile `intentguard` (bin "intentguard") due to 1 previous error</pre>
+      </div>
+    </div>
+
+    <div class="verdict-strip">
+      <strong>Calling Rain on a blocked or escalated action is not a bug that code review has to catch.</strong>
+      There is no value of the right type to pass, so the program does not build. The denied branch in
+      <code>main.rs</code> holds no token and therefore has no reachable path to the payment layer.
+    </div>
+  </div>
+</section>
+
+<!-- ============ CHAIN READBACK ============ -->
+<section>
+  <h2>Verified from chain, not from memory</h2>
+  <div class="chain">
+    <p class="note" style="margin-top:0">
+      At the end of the run, IntentGuard reads one of its own records back off Monad testnet — through the RPC,
+      not from the program's own variables. Only the hash goes on chain, never the task: destination, budget, and
+      purpose are exactly the private context that makes IntentGuard work, and publishing them would defeat the
+      point. Anyone holding the original task can recompute the digest and prove it matches; the chain alone
+      reveals nothing.
+    </p>
+    <div class="receipts" style="margin-top:18px">
+      <div class="receipt"><span class="k">record</span><span class="v">#31 of 32 on chain</span></div>
+      <div class="receipt"><span class="k">decision hash</span><span class="v">0x66a3bbdf6db799a7d3a282cfe0fd0ddd7b29da4ae896ffcd2ad54b57dedeeaac</span></div>
+      <div class="receipt"><span class="k">status</span><span class="v">approved</span></div>
+      <div class="receipt"><span class="k">timestamp</span><span class="v">1786275102</span></div>
+      <div class="receipt"><span class="k">contract</span><span class="v"><a href="https://testnet.monadexplorer.com/address/0xf70b88E30F844B400EA8478A73f181854Bd16cEa" target="_blank" rel="noopener">0xf70b88E30F844B400EA8478A73f181854Bd16cEa</a><span class="tag">chain id 10143</span></span></div>
+      <div class="receipt"><span class="k">written from</span><span class="v">0xd4b0FA949C95627eC358d9786FCCD9F40dFEf51E</span></div>
+    </div>
+    <p class="note">
+      Blocked and escalated decisions are anchored too. An audit trail that only recorded approvals would answer
+      the least interesting question — the valuable claim is that the system <em>refused</em>, and when.
+    </p>
+
+    <div class="proof-step-label" style="margin-top:22px">Verify it yourself, with no part of this repo involved</div>
+<pre>$ cast call 0xf70b88E30F844B400EA8478A73f181854Bd16cEa <span class="c-ty">'getRecord(uint256)(bytes32,string,uint256)'</span> 31 --rpc-url &lt;monad-testnet-rpc&gt;
+
+<span class="c-ok">0x66a3bbdf6db799a7d3a282cfe0fd0ddd7b29da4ae896ffcd2ad54b57dedeeaac</span>
+<span class="c-ok">"approved"</span>
+<span class="c-ok">1786275102</span></pre>
+    <p class="note" style="margin-top:14px;margin-bottom:0">
+      <strong style="color:var(--text)">Note on the record count:</strong> the log is append-only and every run
+      adds to it, so <code>recordCount()</code> reads higher than 32 today — the run captured above wrote records
+      through #31, and the interactive no-fabrication run shown earlier appended more after it. Record #31 itself
+      is immutable and still returns exactly the three values above.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="flinks">
+    <a href="https://github.com/amudhan23/intent-guard" target="_blank" rel="noopener">github.com/amudhan23/intent-guard</a>
+    <a href="https://testnet.monadexplorer.com/address/0xf70b88E30F844B400EA8478A73f181854Bd16cEa" target="_blank" rel="noopener">Audit log contract on Monad testnet</a>
+  </div>
+  <p>
+    This page displays <strong style="color:var(--text)">real captured output</strong> from an actual
+    <code>cargo run</code> against Rain's sandbox API and Monad testnet — not mocked data. Every card_id and
+    transaction_id is a real Rain sandbox object; every Monad hash above links to the live public block
+    explorer and can be verified independently, with no part of this repo involved.
+  </p>
+  <p>
+    Scenario 0 also runs as a fully interactive terminal feature — <code>INTENTGUARD_INTERACTIVE=1 cargo run</code>
+    lets a judge type their own request and watch it parsed, proposed, and ruled on live. That stays in the
+    terminal by design; this page is a display layer over results already obtained.
+  </p>
+  <p style="margin-bottom:0">
+    Team 36 · Raingentic Commerce Hackathon, August 2026 · Rust 2024 edition · 41 offline tests, 0 failures.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
