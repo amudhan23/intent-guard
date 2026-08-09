@@ -476,6 +476,13 @@
     control Rain has — right MCC, right amount, first attempt of the day. IntentGuard sits one layer above the
     money and checks the one thing the payment rails structurally cannot see.
   </p>
+  <p class="note">
+    The task is what the user actually said: <code>destination</code>, <code>max_budget</code>,
+    <code>purpose</code>, and the travel window <code>start_date</code>–<code>end_date</code>. Three of those are
+    enforced against every proposed action. Dates are structured fields rather than prose inside the booking
+    description for one reason: a date buried in free text can be displayed but not validated, so an agent
+    booking days the user never asked to pay for would sail straight through.
+  </p>
 </section>
 
 <section>
@@ -492,7 +499,7 @@
     </div>
     <div class="card-body">
       <div class="callout">
-        <strong>User typed:</strong> "I need to get to New York City for a hackathon happening August 15th and 16th.
+        <strong>User typed:</strong> "I need to get to New York City for a hackathon happening August 15th and 16th, 2026.
         My budget is $500. This is for me, traveling alone."
       </div>
       <div class="cols">
@@ -502,6 +509,8 @@
             <div class="row"><dt>destination</dt><dd>New York City</dd></div>
             <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
             <div class="row"><dt>purpose</dt><dd>attending a hackathon</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="block">
@@ -509,19 +518,21 @@
           <dl>
             <div class="row"><dt>task_id</dt><dd>scenario-0</dd></div>
             <div class="row"><dt>destination</dt><dd>New York City</dd></div>
-            <div class="row"><dt>amount</dt><dd>$312.00</dd></div>
-            <div class="row"><dt>description</dt><dd>Delta flight from Chicago O'Hare (ORD) to New York LaGuardia (LGA), round trip</dd></div>
+            <div class="row"><dt>amount</dt><dd>$428.00</dd></div>
+            <div class="row"><dt>description</dt><dd>Delta round-trip flight ORD-LGA, departing Chicago O'Hare 2026-08-15 and returning 2026-08-16</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
       </div>
       <div class="verdict">
         <div class="verdict-line"><span class="dot"></span>APPROVED</div>
-        <div class="reason">action matches task intent (destination 'New York City', $312.00 within $500.00 budget)</div>
+        <div class="reason">action matches task intent (destination 'New York City', $428.00 within $500.00 budget, 2026-08-15 to 2026-08-16 within 2026-08-15 to 2026-08-16)</div>
       </div>
       <div class="receipts">
-        <div class="receipt"><span class="k">rain card_id</span><span class="v">d60c63d8-b09f-4cc8-a5a8-ed910dc04d00</span></div>
-        <div class="receipt"><span class="k">rain transaction</span><span class="v">7636fb3f-1934-4c69-adff-19e464190ffc<span class="tag">settled</span></span></div>
-        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x55c335ed66388d4cc1f87c1b17b3e73e0aa04a6980a0f2b930bcaa7e6aedcecc" target="_blank" rel="noopener">0x55c335ed66388d4cc1f87c1b17b3e73e0aa04a6980a0f2b930bcaa7e6aedcecc</a></span></div>
+        <div class="receipt"><span class="k">rain card_id</span><span class="v">bc840cce-6b75-48c1-85c2-2a822bdc25cd</span></div>
+        <div class="receipt"><span class="k">rain transaction</span><span class="v">e999d37c-67c5-43b1-9d9f-bfb77e28ee30<span class="tag">settled</span></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0xf7c332153ad1a5540766c0d54e1306af1e3ef34f8494ca7adf48e8bb42b6a03b" target="_blank" rel="noopener">0xf7c332153ad1a5540766c0d54e1306af1e3ef34f8494ca7adf48e8bb42b6a03b</a></span></div>
       </div>
     </div>
   </article>
@@ -532,7 +543,7 @@
       <div class="card-title">
         <span class="snum">SCENARIO 1</span>
         <span class="sname">Clean approval</span>
-        <span class="sdesc">The deterministic baseline. Action matches the task on both destination and budget, so the gate mints an approval token and the full Rain lifecycle runs: scoped card issued, charge authorized, charge settled.</span>
+        <span class="sdesc">The deterministic baseline. Action matches the task on all three checked dimensions — destination, budget, and travel window — so the gate mints an approval token and the full Rain lifecycle runs: scoped card issued, charge authorized, charge settled.</span>
       </div>
     </div>
     <div class="card-body">
@@ -543,6 +554,8 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
             <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="block">
@@ -552,17 +565,19 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>amount</dt><dd>$480.00</dd></div>
             <div class="row"><dt>description</dt><dd>Delta flight to NYC</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
       </div>
       <div class="verdict">
         <div class="verdict-line"><span class="dot"></span>APPROVED</div>
-        <div class="reason">action matches task intent (destination 'NYC', $480.00 within $500.00 budget)</div>
+        <div class="reason">action matches task intent (destination 'NYC', $480.00 within $500.00 budget, 2026-08-15 to 2026-08-16 within 2026-08-15 to 2026-08-16)</div>
       </div>
       <div class="receipts">
-        <div class="receipt"><span class="k">rain card_id</span><span class="v">f72bafa8-7ffa-4312-9557-4c9559b429ef</span></div>
-        <div class="receipt"><span class="k">rain transaction</span><span class="v">9ada348c-7647-4c28-8edc-915ce81fcf52<span class="tag">settled</span></span></div>
-        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x821c098af762bb8c794ff61945e8afb8599f2ece543d12f30a86b58d0456f46a" target="_blank" rel="noopener">0x821c098af762bb8c794ff61945e8afb8599f2ece543d12f30a86b58d0456f46a</a></span></div>
+        <div class="receipt"><span class="k">rain card_id</span><span class="v">643cde43-19e6-4e71-974a-7c4585797b7b</span></div>
+        <div class="receipt"><span class="k">rain transaction</span><span class="v">137c2fac-7ef6-4e60-9b67-6c4239c1f3cd<span class="tag">settled</span></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x09a79883cb95555535e56620e6dcd2d1e7a21ea65ff7113e0849daaf12132ce6" target="_blank" rel="noopener">0x09a79883cb95555535e56620e6dcd2d1e7a21ea65ff7113e0849daaf12132ce6</a></span></div>
       </div>
     </div>
   </article>
@@ -584,6 +599,8 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
             <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="block">
@@ -591,19 +608,21 @@
           <dl>
             <div class="row"><dt>task_id</dt><dd>scenario-1b</dd></div>
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
-            <div class="row"><dt>amount</dt><dd>$312.00</dd></div>
-            <div class="row"><dt>description</dt><dd>Delta flight SFO to JFK (NYC) for hackathon attendance</dd></div>
+            <div class="row"><dt>amount</dt><dd>$428.00</dd></div>
+            <div class="row"><dt>description</dt><dd>Delta round-trip flight ORD to JFK (New York City)</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
       </div>
       <div class="verdict">
         <div class="verdict-line"><span class="dot"></span>APPROVED</div>
-        <div class="reason">action matches task intent (destination 'NYC', $312.00 within $500.00 budget)</div>
+        <div class="reason">action matches task intent (destination 'NYC', $428.00 within $500.00 budget, 2026-08-15 to 2026-08-16 within 2026-08-15 to 2026-08-16)</div>
       </div>
       <div class="receipts">
-        <div class="receipt"><span class="k">rain card_id</span><span class="v">b0bdbf6b-db51-4b29-8630-1c1d46f09335</span></div>
-        <div class="receipt"><span class="k">rain transaction</span><span class="v">76de5014-a475-4b88-94ba-f43eb0eb714b<span class="tag">settled</span></span></div>
-        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x755d64d01f521d155236cb0b7583cdff542ac83267d43a71ad6844915715ca98" target="_blank" rel="noopener">0x755d64d01f521d155236cb0b7583cdff542ac83267d43a71ad6844915715ca98</a></span></div>
+        <div class="receipt"><span class="k">rain card_id</span><span class="v">bc164db0-111e-4c15-a90e-2eb8c1376bd5</span></div>
+        <div class="receipt"><span class="k">rain transaction</span><span class="v">21ea44af-e460-4368-ab93-abf134faa6fa<span class="tag">settled</span></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x9e12610d8a9e57bbd4c1a2457388e220eeef323958724b84668f7d8ac99da768" target="_blank" rel="noopener">0x9e12610d8a9e57bbd4c1a2457388e220eeef323958724b84668f7d8ac99da768</a></span></div>
       </div>
     </div>
   </article>
@@ -614,7 +633,7 @@
       <div class="card-title">
         <span class="snum">SCENARIO 2</span>
         <span class="sname">Intent mismatch</span>
-        <span class="sdesc">The core case. A $450 flight to Miami against an NYC task. Rain's Agent Control Layer would allow this — airline MCC, sane amount, first attempt. Only the task context reveals it is the wrong city.</span>
+        <span class="sdesc">The core case. A $450 flight to Miami against an NYC task — on the right dates, under budget, first attempt. Rain's Agent Control Layer would allow this. Only the task context reveals it is the wrong city, and the city is the <em>only</em> thing wrong with it.</span>
       </div>
     </div>
     <div class="card-body">
@@ -625,6 +644,8 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
             <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="block">
@@ -634,12 +655,18 @@
             <div class="row"><dt>destination</dt><dd>Miami</dd></div>
             <div class="row"><dt>amount</dt><dd>$450.00</dd></div>
             <div class="row"><dt>description</dt><dd>Flight to Miami</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
       </div>
       <div class="callout">
         Rain's Agent Control Layer would allow this — an airline charge of $450.00 is under any sane
         per-transaction limit. <strong>Only the task context reveals it is the wrong city.</strong>
+        Note that the dates and the amount are both correct: this booking fails on exactly one dimension,
+        which is what makes it evidence about that dimension. A regression test
+        (<code>scenario_two_is_blocked_on_destination_alone</code>) holds it that way — it corrects only the
+        city and asserts the same booking then passes.
       </div>
       <div class="verdict">
         <div class="verdict-line"><span class="dot"></span>BLOCKED</div>
@@ -647,7 +674,7 @@
       </div>
       <div class="noapi">No Rain API calls made — request blocked before reaching the payment layer.</div>
       <div class="receipts">
-        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x91323a4bd5f7a2407a0e3826988dfb89fc583fe54855c80b91557ac1a9f9559e" target="_blank" rel="noopener">0x91323a4bd5f7a2407a0e3826988dfb89fc583fe54855c80b91557ac1a9f9559e</a></span></div>
+        <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x0d348c96b7bd84895c580543ac356cb53eee6fbdd2e9a50e48f297ddf25c601a" target="_blank" rel="noopener">0x0d348c96b7bd84895c580543ac356cb53eee6fbdd2e9a50e48f297ddf25c601a</a></span></div>
       </div>
     </div>
   </article>
@@ -668,6 +695,8 @@
           <div class="row"><dt>destination</dt><dd>NYC</dd></div>
           <div class="row"><dt>max_budget</dt><dd>$500.00</dd></div>
           <div class="row"><dt>purpose</dt><dd>hackathon attendance</dd></div>
+          <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+          <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
         </dl>
       </div>
 
@@ -680,17 +709,19 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>amount</dt><dd>$460.00</dd></div>
             <div class="row"><dt>description</dt><dd>JetBlue flight to NYC</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="verdict a">
           <div class="verdict-line"><span class="dot"></span>APPROVED</div>
-          <div class="reason">action matches task intent (destination 'NYC', $460.00 within $500.00 budget)</div>
+          <div class="reason">action matches task intent (destination 'NYC', $460.00 within $500.00 budget, 2026-08-15 to 2026-08-16 within 2026-08-15 to 2026-08-16)</div>
         </div>
         <div class="noapi">Authorization succeeded but settlement was deliberately skipped — flight unavailable, agent must retry. <strong>No money moved.</strong></div>
         <div class="receipts">
-          <div class="receipt"><span class="k">rain card_id</span><span class="v">f737f9b7-4b51-41aa-9c6f-2c3083aeb133</span></div>
-          <div class="receipt"><span class="k">rain transaction</span><span class="v">94933249-2b8d-47f8-9e66-9d262206aa76<span class="tag">authorized — not settled</span></span></div>
-          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0xeae16c55d2a73756bec3bfaaf69e4b3e6ef51780b5247952e0c44572af58fab4" target="_blank" rel="noopener">0xeae16c55d2a73756bec3bfaaf69e4b3e6ef51780b5247952e0c44572af58fab4</a></span></div>
+          <div class="receipt"><span class="k">rain card_id</span><span class="v">4af4c8a6-e74a-41b7-aa54-b934f8a5c452</span></div>
+          <div class="receipt"><span class="k">rain transaction</span><span class="v">8db4ac7b-617a-4d0a-9717-627b4c92cc8e<span class="tag">authorized — not settled</span></span></div>
+          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x752572a30a35c62bd842a55ae5d7f7a0abee00a9720787f9160832fd11301c4b" target="_blank" rel="noopener">0x752572a30a35c62bd842a55ae5d7f7a0abee00a9720787f9160832fd11301c4b</a></span></div>
         </div>
         <div class="noapi" style="margin-top:8px;margin-bottom:0">BOOKING FAILED: flight sold out, retrying</div>
       </div>
@@ -704,17 +735,19 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>amount</dt><dd>$470.00</dd></div>
             <div class="row"><dt>description</dt><dd>United flight to NYC</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="verdict a">
           <div class="verdict-line"><span class="dot"></span>APPROVED</div>
-          <div class="reason">action matches task intent (destination 'NYC', $470.00 within $500.00 budget)</div>
+          <div class="reason">action matches task intent (destination 'NYC', $470.00 within $500.00 budget, 2026-08-15 to 2026-08-16 within 2026-08-15 to 2026-08-16)</div>
         </div>
         <div class="noapi">Authorization succeeded but settlement was deliberately skipped — flight unavailable, agent must retry. <strong>No money moved.</strong></div>
         <div class="receipts">
-          <div class="receipt"><span class="k">rain card_id</span><span class="v">36360e20-ced3-4890-ac9e-23db32fd2850</span></div>
-          <div class="receipt"><span class="k">rain transaction</span><span class="v">3e6faf43-75d4-4a89-87a4-7374ee364885<span class="tag">authorized — not settled</span></span></div>
-          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x602fb77d9bd5f5ea1a0d478adc79750c8cc223f7703f557c9c1fa0256d92892a" target="_blank" rel="noopener">0x602fb77d9bd5f5ea1a0d478adc79750c8cc223f7703f557c9c1fa0256d92892a</a></span></div>
+          <div class="receipt"><span class="k">rain card_id</span><span class="v">94e89d83-b6be-4936-9451-53276103510d</span></div>
+          <div class="receipt"><span class="k">rain transaction</span><span class="v">a3a4607c-5c1d-4e2c-b778-dbddcddd3d54<span class="tag">authorized — not settled</span></span></div>
+          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x377003bafcb71158e1b784a2068409eaae782976870ff4cf8a0f3a0137a02d6b" target="_blank" rel="noopener">0x377003bafcb71158e1b784a2068409eaae782976870ff4cf8a0f3a0137a02d6b</a></span></div>
         </div>
         <div class="noapi" style="margin-top:8px;margin-bottom:0">BOOKING FAILED: no seats available, retrying</div>
       </div>
@@ -728,6 +761,8 @@
             <div class="row"><dt>destination</dt><dd>NYC</dd></div>
             <div class="row"><dt>amount</dt><dd>$455.00</dd></div>
             <div class="row"><dt>description</dt><dd>American flight to NYC</dd></div>
+            <div class="row"><dt>start_date</dt><dd>2026-08-15</dd></div>
+            <div class="row"><dt>end_date</dt><dd>2026-08-16</dd></div>
           </dl>
         </div>
         <div class="callout">
@@ -740,7 +775,7 @@
         </div>
         <div class="noapi">No Rain API calls made — request blocked before reaching the payment layer.</div>
         <div class="receipts">
-          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0xeebfa50415fea1167d7a5893efd74c6bb0f3074492b30cb96bb3736a4379705a" target="_blank" rel="noopener">0xeebfa50415fea1167d7a5893efd74c6bb0f3074492b30cb96bb3736a4379705a</a></span></div>
+          <div class="receipt"><span class="k">monad audit tx</span><span class="v"><a href="https://testnet.monadexplorer.com/tx/0x60d4cf91b0a6b14bff387ac1fff1c4001ddfde3b15136f7ff350cafe1498a5f2" target="_blank" rel="noopener">0x60d4cf91b0a6b14bff387ac1fff1c4001ddfde3b15136f7ff350cafe1498a5f2</a></span></div>
         </div>
       </div>
     </div>
@@ -753,11 +788,18 @@
   <div class="guard">
     <h3>A vague request is an error to report, not a gap to fill in</h3>
     <p class="lead">
-      <code>parse_task_from_prompt</code> has <strong>no fallback, on purpose</strong>. Inventing a destination or
-      a budget the user never gave would fabricate the exact intent this project exists to check. The guard is
-      enforced twice: the model is instructed to return <code>{"error": ...}</code> when a field is missing,
-      <em>and</em> the parser independently rejects an empty destination, a non-finite or non-positive budget, and
-      an empty purpose — in case a model answers in the right shape with nothing in it.
+      <code>parse_task_from_prompt</code> has <strong>no fallback, on purpose</strong>. Inventing a destination,
+      a budget, or a travel date the user never gave would fabricate the exact intent this project exists to
+      check. The guard is enforced twice: the model is instructed to return <code>{"error": ...}</code> when a
+      field is missing, <em>and</em> the parser independently rejects an empty destination, a non-finite or
+      non-positive budget, an empty purpose, and any date that is not a full <code>YYYY-MM-DD</code> — in case a
+      model answers in the right shape with nothing in it.
+    </p>
+    <p class="lead">
+      Dates get held to that standard strictly: <strong>a month and a day with no year is incomplete</strong>.
+      "August 15th" does not say <em>which</em> August, and picking the nearest one is a guess about what the
+      user meant. That is why the example request states the year outright — the parser will not supply one, so
+      an interactive request has to carry it.
     </p>
     <div class="proof-step-label">Live capture — <code>INTENTGUARD_INTERACTIVE=1 cargo run</code></div>
 <pre><span class="c-dim">  Where do you want to go, and what is your budget?</span>
@@ -847,16 +889,16 @@ For more information about this error, try `rustc --explain E0308`.
   <div class="chain">
     <p class="note" style="margin-top:0">
       At the end of the run, IntentGuard reads one of its own records back off Monad testnet — through the RPC,
-      not from the program's own variables. Only the hash goes on chain, never the task: destination, budget, and
-      purpose are exactly the private context that makes IntentGuard work, and publishing them would defeat the
-      point. Anyone holding the original task can recompute the digest and prove it matches; the chain alone
+      not from the program's own variables. Only the hash goes on chain, never the task: destination, budget,
+      purpose, and travel dates are exactly the private context that makes IntentGuard work, and publishing them
+      would defeat the point. Anyone holding the original task can recompute the digest and prove it matches; the chain alone
       reveals nothing.
     </p>
     <div class="receipts" style="margin-top:18px">
-      <div class="receipt"><span class="k">record</span><span class="v">#57 of 58 on chain</span></div>
-      <div class="receipt"><span class="k">decision hash</span><span class="v">0x215b3c34bbe3d505c2d45eb0d5d352dad9e08afd97649ba1e812603f364ca91b</span></div>
+      <div class="receipt"><span class="k">record</span><span class="v">#67 of 68 on chain</span></div>
+      <div class="receipt"><span class="k">decision hash</span><span class="v">0xc0c1874fc3f3c35477112221448504765394c837d6b10e193f6d47d21e4c9982</span></div>
       <div class="receipt"><span class="k">status</span><span class="v">approved</span></div>
-      <div class="receipt"><span class="k">timestamp</span><span class="v">1786277329</span></div>
+      <div class="receipt"><span class="k">timestamp</span><span class="v">1786279603</span></div>
       <div class="receipt"><span class="k">contract</span><span class="v"><a href="https://testnet.monadexplorer.com/address/0xf70b88E30F844B400EA8478A73f181854Bd16cEa" target="_blank" rel="noopener">0xf70b88E30F844B400EA8478A73f181854Bd16cEa</a><span class="tag">chain id 10143</span></span></div>
       <div class="receipt"><span class="k">written from</span><span class="v">0xd4b0FA949C95627eC358d9786FCCD9F40dFEf51E</span></div>
     </div>
@@ -866,15 +908,15 @@ For more information about this error, try `rustc --explain E0308`.
     </p>
 
     <div class="proof-step-label" style="margin-top:22px">Verify it yourself, with no part of this repo involved</div>
-<pre>$ cast call 0xf70b88E30F844B400EA8478A73f181854Bd16cEa <span class="c-ty">'getRecord(uint256)(bytes32,string,uint256)'</span> 57 --rpc-url &lt;monad-testnet-rpc&gt;
+<pre>$ cast call 0xf70b88E30F844B400EA8478A73f181854Bd16cEa <span class="c-ty">'getRecord(uint256)(bytes32,string,uint256)'</span> 67 --rpc-url &lt;monad-testnet-rpc&gt;
 
-<span class="c-ok">0x215b3c34bbe3d505c2d45eb0d5d352dad9e08afd97649ba1e812603f364ca91b</span>
+<span class="c-ok">0xc0c1874fc3f3c35477112221448504765394c837d6b10e193f6d47d21e4c9982</span>
 <span class="c-ok">"approved"</span>
-<span class="c-ok">1786277329</span></pre>
+<span class="c-ok">1786279603</span></pre>
     <p class="note" style="margin-top:14px;margin-bottom:0">
       <strong style="color:var(--text)">Note on the record count:</strong> the log is append-only and every run
-      adds to it, so <code>recordCount()</code> reads higher than 58 today — the run captured above wrote records
-      through #57. Record #57 itself
+      adds to it, so <code>recordCount()</code> reads higher than 68 today — the run captured above wrote records
+      through #67. Record #67 itself
       is immutable and still returns exactly the three values above.
     </p>
   </div>
@@ -897,7 +939,7 @@ For more information about this error, try `rustc --explain E0308`.
     terminal by design; this page is a display layer over results already obtained.
   </p>
   <p style="margin-bottom:0">
-    Team 36 · Raingentic Commerce Hackathon, August 2026 · Rust 2024 edition · 41 offline tests, 0 failures.
+    Team 36 · Raingentic Commerce Hackathon, August 2026 · Rust 2024 edition · 57 offline tests, 0 failures.
   </p>
 </footer>
 

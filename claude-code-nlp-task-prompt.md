@@ -33,7 +33,7 @@ Add this as the FIRST scenario printed (before Scenario 1), clearly labeled as t
 
 Use this hardcoded example prompt for the default demo run (since we need something reliable to type/show, but the parsing itself is genuinely live, not hardcoded):
 
-"I need to get to New York City for a hackathon happening August 15th and 16th. My budget is $500. This is for me, traveling alone."
+"I need to get to New York City for a hackathon happening August 15th and 16th, 2026. My budget is $500. This is for me, traveling alone."
 
 Print each step clearly as it happens:
 1. "User request: <the raw prompt>"

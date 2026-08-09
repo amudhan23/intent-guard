@@ -124,25 +124,40 @@ fn system_prompt() -> String {
 
 fn user_prompt(task: &Task) -> String {
     format!(
-        "TASK\n  destination : {}\n  max_budget  : {:.2} USD\n  purpose     : {}\n\n\
+        "TASK\n  destination : {}\n  max_budget  : {:.2} USD\n  purpose     : {}\n  \
+         travel from: {}\n  travel to   : {}\n\n\
+         The travel window above is fixed. Do not book a departure before {} or a \
+         return after {} — those days are not part of the task, and a booking \
+         outside the window will be rejected.\n\n\
          Propose one flight booking for this task as JSON with exactly these keys:\n\
          {{\n  \"task_id\": \"{}\",\n  \"destination\": \"{}\",\n  \
          \"amount\": <number, USD, at most {:.2}>,\n  \
-         \"description\": \"<airline and route, e.g. 'Delta flight to NYC'>\"\n}}",
+         \"description\": \"<airline and route, e.g. 'Delta flight to NYC'>\",\n  \
+         \"start_date\": \"<departure date, YYYY-MM-DD, no earlier than {}>\",\n  \
+         \"end_date\": \"<return date, YYYY-MM-DD, no later than {}>\"\n}}",
         task.destination,
         task.max_budget,
         task.purpose,
+        task.start_date,
+        task.end_date,
+        task.start_date,
+        task.end_date,
         AGENT_TASK_ID,
         task.destination,
         task.max_budget,
+        task.start_date,
+        task.end_date,
     )
 }
 
 const TASK_SYSTEM_PROMPT: &str = "You extract a structured travel task from a user's \
      plain-English request.\n\n\
      Extract only what the user actually stated. Never invent a destination, a budget, \
-     or a purpose the user did not give — an incomplete request is a valid outcome and \
-     must be reported, not filled in.\n\n\
+     a purpose, or travel dates the user did not give — an incomplete request is a valid \
+     outcome and must be reported, not filled in.\n\n\
+     Travel dates are held to the same standard. A request that names no dates is \
+     incomplete. So is one that names a month and a day but no year: do not assume the \
+     current year, the next occurrence, or any other year the user did not say.\n\n\
      Reply with a single JSON object and nothing else — no prose, no markdown fences, \
      no explanation. Your reply is parsed directly by a program.\n\n\
      Do not include internal or system XML tags in your response.";
@@ -150,10 +165,13 @@ const TASK_SYSTEM_PROMPT: &str = "You extract a structured travel task from a us
 fn task_user_prompt(user_input: &str) -> String {
     format!(
         "USER REQUEST\n{user_input}\n\n\
-         If the request states both a destination and a budget, reply with:\n\
+         If the request states a destination, a budget, and the travel dates, reply with:\n\
          {{\n  \"destination\": \"<city name>\",\n  \"max_budget\": <number, USD>,\n  \
-         \"purpose\": \"<short phrase, why they are travelling>\"\n}}\n\n\
-         If the destination or the budget is missing, reply instead with:\n\
+         \"purpose\": \"<short phrase, why they are travelling>\",\n  \
+         \"start_date\": \"<first day of travel, YYYY-MM-DD>\",\n  \
+         \"end_date\": \"<last day of travel, YYYY-MM-DD>\"\n}}\n\n\
+         If the destination, the budget, or the dates are missing — including a date \
+         given without a year — reply instead with:\n\
          {{\n  \"error\": \"<which one is missing>\"\n}}"
     )
 }
@@ -212,10 +230,54 @@ fn json_span(text: &str) -> Result<&str, Error> {
     }
 }
 
+/// True for a zero-padded `YYYY-MM-DD` date with a plausible month and day.
+///
+/// This guards the precondition `intent_check` relies on: string ordering is
+/// only chronological ordering while every date has this exact shape. It is a
+/// shape check, not a calendar — `2026-02-31` passes, and comparing it still
+/// behaves consistently, which is all the gate needs.
+fn is_iso_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(i, b)| matches!(i, 4 | 7) || b.is_ascii_digit())
+    {
+        return false;
+    }
+
+    let number = |from: usize, to: usize| value[from..to].parse::<u32>().unwrap_or(0);
+    (1..=12).contains(&number(5, 7)) && (1..=31).contains(&number(8, 10))
+}
+
 fn action_from_text(text: &str) -> Result<ProposedAction, Error> {
     let span = json_span(text)?;
     let mut action: ProposedAction =
         serde_json::from_str(span).map_err(|e| Error::Parse(format!("{e} in {span:?}")))?;
+
+    // A date the gate cannot compare is worse than no date: it would sail
+    // through a string comparison meaning nothing. Reject it as malformed
+    // output, which is what it is.
+    for (field, value) in [
+        ("start_date", &action.start_date),
+        ("end_date", &action.end_date),
+    ] {
+        if !is_iso_date(value) {
+            return Err(Error::Parse(format!(
+                "{field} {value:?} is not a YYYY-MM-DD date"
+            )));
+        }
+    }
+
+    if action.end_date < action.start_date {
+        return Err(Error::Parse(format!(
+            "end_date {:?} is before start_date {:?}",
+            action.end_date, action.start_date
+        )));
+    }
 
     // The tracker keys on this, so it is ours to set, not the model's.
     action.task_id = AGENT_TASK_ID.to_string();
@@ -249,6 +311,27 @@ fn task_from_text(text: &str) -> Result<Task, Error> {
         return Err(Error::Incomplete("no purpose given".to_string()));
     }
 
+    // Dates get the same treatment as destination and budget: a model that
+    // could not find them must say so rather than pick some. Anything that is
+    // not a usable date is reported as the missing information it stands for.
+    for (field, value) in [
+        ("start_date", &task.start_date),
+        ("end_date", &task.end_date),
+    ] {
+        if !is_iso_date(value) {
+            return Err(Error::Incomplete(format!(
+                "no usable {field} given (got {value:?})"
+            )));
+        }
+    }
+
+    if task.end_date < task.start_date {
+        return Err(Error::Incomplete(format!(
+            "the travel window ends before it starts ({} to {})",
+            task.start_date, task.end_date
+        )));
+    }
+
     Ok(task)
 }
 
@@ -269,6 +352,8 @@ fn fallback_action() -> ProposedAction {
         destination: "NYC".to_string(),
         amount: 480.0,
         description: "Delta flight to NYC".to_string(),
+        start_date: "2026-08-15".to_string(),
+        end_date: "2026-08-16".to_string(),
     }
 }
 
@@ -301,18 +386,22 @@ mod tests {
     #[test]
     fn parses_a_clean_json_reply() {
         let action = action_from_body(&body(
-            r#"{"task_id":"x","destination":"NYC","amount":465.0,"description":"JetBlue to NYC"}"#,
+            r#"{"task_id":"x","destination":"NYC","amount":465.0,"description":"JetBlue to NYC",
+                "start_date":"2026-08-15","end_date":"2026-08-16"}"#,
         ))
         .expect("parse");
         assert_eq!(action.destination, "NYC");
         assert_eq!(action.amount, 465.0);
         assert_eq!(action.description, "JetBlue to NYC");
+        assert_eq!(action.start_date, "2026-08-15");
+        assert_eq!(action.end_date, "2026-08-16");
     }
 
     #[test]
     fn overrides_whatever_task_id_the_model_chose() {
         let action = action_from_body(&body(
-            r#"{"task_id":"whatever-i-want","destination":"NYC","amount":465.0,"description":"f"}"#,
+            r#"{"task_id":"whatever-i-want","destination":"NYC","amount":465.0,"description":"f",
+                "start_date":"2026-08-15","end_date":"2026-08-16"}"#,
         ))
         .expect("parse");
         assert_eq!(action.task_id, AGENT_TASK_ID);
@@ -322,7 +411,8 @@ mod tests {
     fn tolerates_prose_and_fences_around_the_json() {
         let action = action_from_text(
             "Sure! Here you go:\n```json\n{\"task_id\":\"x\",\"destination\":\"NYC\",\
-             \"amount\":470.0,\"description\":\"United to NYC\"}\n```\nHope that helps.",
+             \"amount\":470.0,\"description\":\"United to NYC\",\
+             \"start_date\":\"2026-08-15\",\"end_date\":\"2026-08-16\"}\n```\nHope that helps.",
         )
         .expect("parse");
         assert_eq!(action.amount, 470.0);
@@ -332,6 +422,31 @@ mod tests {
     fn rejects_a_reply_with_no_json() {
         assert!(matches!(
             action_from_text("I'd rather not."),
+            Err(Error::Parse(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_an_action_date_that_is_not_iso() {
+        for bad in ["Aug 15 2026", "2026-8-15", "15/08/2026", ""] {
+            let reply = format!(
+                r#"{{"task_id":"x","destination":"NYC","amount":465.0,"description":"f",
+                     "start_date":"{bad}","end_date":"2026-08-16"}}"#
+            );
+            assert!(
+                matches!(action_from_text(&reply), Err(Error::Parse(_))),
+                "{bad:?} should be rejected as a date"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_an_action_returning_before_it_departs() {
+        assert!(matches!(
+            action_from_text(
+                r#"{"task_id":"x","destination":"NYC","amount":465.0,"description":"f",
+                    "start_date":"2026-08-16","end_date":"2026-08-15"}"#
+            ),
             Err(Error::Parse(_))
         ));
     }
@@ -359,19 +474,23 @@ mod tests {
     #[test]
     fn parses_a_clean_task_reply() {
         let task = task_from_text(
-            r#"{"destination":"NYC","max_budget":500.0,"purpose":"hackathon attendance"}"#,
+            r#"{"destination":"NYC","max_budget":500.0,"purpose":"hackathon attendance",
+                "start_date":"2026-08-15","end_date":"2026-08-16"}"#,
         )
         .expect("parse");
         assert_eq!(task.destination, "NYC");
         assert_eq!(task.max_budget, 500.0);
         assert_eq!(task.purpose, "hackathon attendance");
+        assert_eq!(task.start_date, "2026-08-15");
+        assert_eq!(task.end_date, "2026-08-16");
     }
 
     #[test]
     fn parses_a_task_wrapped_in_prose_and_fences() {
         let task = task_from_text(
             "Got it:\n```json\n{\"destination\":\"Boston\",\"max_budget\":300.0,\
-             \"purpose\":\"client visit\"}\n```\nLet me know!",
+             \"purpose\":\"client visit\",\"start_date\":\"2026-09-01\",\
+             \"end_date\":\"2026-09-03\"}\n```\nLet me know!",
         )
         .expect("parse");
         assert_eq!(task.destination, "Boston");
@@ -394,6 +513,58 @@ mod tests {
         ));
     }
 
+    /// Dates are held to the destination-and-budget standard: unusable means
+    /// incomplete, never a guess.
+    #[test]
+    fn a_task_without_usable_dates_is_incomplete_not_valid() {
+        for bad in ["", "08-15", "August 15th", "2026-08"] {
+            let reply = format!(
+                r#"{{"destination":"NYC","max_budget":500.0,"purpose":"x",
+                     "start_date":"{bad}","end_date":"2026-08-16"}}"#
+            );
+            assert!(
+                matches!(task_from_text(&reply), Err(Error::Incomplete(_))),
+                "{bad:?} should be reported as incomplete"
+            );
+        }
+    }
+
+    #[test]
+    fn a_backwards_travel_window_is_incomplete_not_valid() {
+        assert!(matches!(
+            task_from_text(
+                r#"{"destination":"NYC","max_budget":500.0,"purpose":"x",
+                    "start_date":"2026-08-16","end_date":"2026-08-15"}"#
+            ),
+            Err(Error::Incomplete(_))
+        ));
+    }
+
+    /// The booking agent can only respect a window it was told about, so the
+    /// prompt has to carry the task's real dates.
+    #[test]
+    fn the_booking_prompt_states_the_task_window() {
+        let task = Task {
+            destination: "NYC".to_string(),
+            max_budget: 500.0,
+            purpose: "hackathon attendance".to_string(),
+            start_date: "2026-08-15".to_string(),
+            end_date: "2026-08-16".to_string(),
+        };
+        let prompt = user_prompt(&task);
+        assert!(prompt.contains("2026-08-15"), "{prompt}");
+        assert!(prompt.contains("2026-08-16"), "{prompt}");
+    }
+
+    #[test]
+    fn iso_date_accepts_only_zero_padded_full_dates() {
+        assert!(is_iso_date("2026-08-15"));
+        assert!(is_iso_date("2026-12-31"));
+        assert!(!is_iso_date("2026-13-01"));
+        assert!(!is_iso_date("2026-08-32"));
+        assert!(!is_iso_date("2026-08-15T00:00:00Z"));
+    }
+
     /// The whole point: a vague request must not be filled in with a guess.
     #[test]
     fn an_explicit_error_reply_is_reported_as_incomplete() {
@@ -406,7 +577,10 @@ mod tests {
     #[test]
     fn an_empty_destination_is_incomplete_not_valid() {
         assert!(matches!(
-            task_from_text(r#"{"destination":"  ","max_budget":500.0,"purpose":"x"}"#),
+            task_from_text(
+                r#"{"destination":"  ","max_budget":500.0,"purpose":"x",
+                    "start_date":"2026-08-15","end_date":"2026-08-16"}"#
+            ),
             Err(Error::Incomplete(_))
         ));
     }
@@ -414,7 +588,10 @@ mod tests {
     #[test]
     fn a_zero_or_negative_budget_is_incomplete_not_valid() {
         for budget in ["0.0", "-25.0"] {
-            let reply = format!(r#"{{"destination":"NYC","max_budget":{budget},"purpose":"x"}}"#);
+            let reply = format!(
+                r#"{{"destination":"NYC","max_budget":{budget},"purpose":"x",
+                     "start_date":"2026-08-15","end_date":"2026-08-16"}}"#
+            );
             assert!(
                 matches!(task_from_text(&reply), Err(Error::Incomplete(_))),
                 "budget {budget} should be rejected"
@@ -428,5 +605,7 @@ mod tests {
         assert_eq!(action.destination, "NYC");
         assert_eq!(action.amount, 480.0);
         assert_eq!(action.description, "Delta flight to NYC");
+        assert_eq!(action.start_date, "2026-08-15");
+        assert_eq!(action.end_date, "2026-08-16");
     }
 }

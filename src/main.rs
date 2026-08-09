@@ -13,6 +13,15 @@ use types::{Decision, ProposedAction, Task};
 /// Escalate once an agent has taken this many swings at the same task.
 const STUCK_THRESHOLD: u32 = 3;
 
+/// The travel window the scripted scenarios run against — the hackathon itself.
+///
+/// Named rather than repeated so the scripted tasks and the bookings proposed
+/// for them cannot drift apart: a scenario that is meant to fail on
+/// destination alone must stay on-window, and that is only checkable if both
+/// sides read the same constant.
+const HACKATHON_START: &str = "2026-08-15";
+const HACKATHON_END: &str = "2026-08-16";
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
@@ -50,6 +59,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         destination: "NYC".to_string(),
         max_budget: 500.0,
         purpose: "hackathon attendance".to_string(),
+        start_date: HACKATHON_START.to_string(),
+        end_date: HACKATHON_END.to_string(),
     };
 
     let mut tracker = AttemptTracker::new();
@@ -74,8 +85,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// The request used when nobody types one. The parsing is still live — only
 /// the sentence is fixed, so a scripted run has something reliable to show.
+/// The year is stated explicitly because the parser refuses to supply one. A
+/// month and a day alone are not a date the user gave, and guessing the year
+/// would be exactly the fabrication the no-fallback parse path exists to stop.
 const EXAMPLE_REQUEST: &str = "I need to get to New York City for a hackathon happening \
-     August 15th and 16th. My budget is $500. This is for me, traveling alone.";
+     August 15th and 16th, 2026. My budget is $500. This is for me, traveling alone.";
 
 /// Scenario 0's task id. Separate from scenario 1B's so the two live scenarios
 /// are tracked as the distinct tasks they are.
@@ -165,6 +179,8 @@ async fn scenario_one(
         destination: "NYC".to_string(),
         amount: 480.0,
         description: "Delta flight to NYC".to_string(),
+        start_date: HACKATHON_START.to_string(),
+        end_date: HACKATHON_END.to_string(),
     };
 
     print_task(task);
@@ -201,6 +217,23 @@ async fn scenario_one_b(
     run(task, &action, tracker, config, Settlement::Settle, monad).await;
 }
 
+/// The wrong-city booking scenario 2 is built around.
+///
+/// Deliberately on-window and under budget: the only thing wrong with it is the
+/// destination. Scenario 2 exists to show that task context catches what a
+/// payment control cannot, and that argument gets muddier, not sharper, if the
+/// booking is also late and also expensive.
+fn scenario_two_action() -> ProposedAction {
+    ProposedAction {
+        task_id: "scenario-2".to_string(),
+        destination: "Miami".to_string(),
+        amount: 450.0,
+        description: "Flight to Miami".to_string(),
+        start_date: HACKATHON_START.to_string(),
+        end_date: HACKATHON_END.to_string(),
+    }
+}
+
 async fn scenario_two(
     task: &Task,
     tracker: &mut AttemptTracker,
@@ -209,12 +242,7 @@ async fn scenario_two(
 ) {
     header(2, "Intent mismatch");
 
-    let action = ProposedAction {
-        task_id: "scenario-2".to_string(),
-        destination: "Miami".to_string(),
-        amount: 450.0,
-        description: "Flight to Miami".to_string(),
-    };
+    let action = scenario_two_action();
 
     print_task(task);
     print_action(&action);
@@ -263,6 +291,8 @@ fn scenario_three_action(description: &str, amount: f64) -> ProposedAction {
         destination: "NYC".to_string(),
         amount,
         description: description.to_string(),
+        start_date: HACKATHON_START.to_string(),
+        end_date: HACKATHON_END.to_string(),
     }
 }
 
@@ -456,6 +486,7 @@ fn print_task(task: &Task) {
     println!("    destination : {}", task.destination);
     println!("    max_budget  : ${:.2}", task.max_budget);
     println!("    purpose     : {}", task.purpose);
+    println!("    travel dates: {} to {}", task.start_date, task.end_date);
     println!();
 }
 
@@ -465,6 +496,10 @@ fn print_action(action: &ProposedAction) {
     println!("    destination : {}", action.destination);
     println!("    amount      : ${:.2}", action.amount);
     println!("    description : {}", action.description);
+    println!(
+        "    travel dates: {} to {}",
+        action.start_date, action.end_date
+    );
     println!();
 }
 
@@ -482,6 +517,8 @@ mod tests {
             destination: "NYC".to_string(),
             max_budget: 500.0,
             purpose: "hackathon attendance".to_string(),
+            start_date: HACKATHON_START.to_string(),
+            end_date: HACKATHON_END.to_string(),
         }
     }
 
@@ -531,5 +568,58 @@ mod tests {
     #[test]
     fn attempt_plan_matches_the_stuck_threshold() {
         assert_eq!(SCENARIO_3_ATTEMPTS.len() as u32 + 1, STUCK_THRESHOLD);
+    }
+
+    /// Scenario 2 must fail on the city and nothing else. Adding the date check
+    /// created a way for this scenario to start blocking for two reasons at
+    /// once, which would quietly destroy the point it is making.
+    #[test]
+    fn scenario_two_is_blocked_on_destination_alone() {
+        let task = task();
+        let action = scenario_two_action();
+
+        let decision = intent_check::check_intent(&task, &action);
+        assert_eq!(decision.status, "blocked");
+        assert!(
+            decision.reason.contains("destination mismatch"),
+            "{}",
+            decision.reason
+        );
+
+        // The same booking, corrected only on the city, must sail through —
+        // proof that the dates and the amount were never the problem.
+        let mut same_trip_right_city = scenario_two_action();
+        same_trip_right_city.destination = task.destination.clone();
+        assert_eq!(
+            intent_check::check_intent(&task, &same_trip_right_city).status,
+            "approved"
+        );
+    }
+
+    /// The parse path refuses to invent a year, so the example request has to
+    /// contain one or scenario 0 dead-ends on every run.
+    #[test]
+    fn the_example_request_states_a_full_date() {
+        assert!(
+            EXAMPLE_REQUEST.contains("2026"),
+            "example request must state a year: {EXAMPLE_REQUEST}"
+        );
+    }
+
+    /// The scripted scenarios all book inside the window their task allows.
+    #[test]
+    fn every_scripted_booking_is_on_window() {
+        let task = task();
+        let scripted = SCENARIO_3_ATTEMPTS
+            .iter()
+            .map(|attempt| scenario_three_action(attempt.description, attempt.amount));
+
+        for action in scripted {
+            assert!(
+                action.start_date >= task.start_date && action.end_date <= task.end_date,
+                "{} books outside the task window",
+                action.description
+            );
+        }
     }
 }

@@ -264,6 +264,8 @@ mod tests {
             destination: "NYC".to_string(),
             max_budget: 500.0,
             purpose: "hackathon attendance".to_string(),
+            start_date: "2026-08-15".to_string(),
+            end_date: "2026-08-16".to_string(),
         }
     }
 
@@ -273,6 +275,8 @@ mod tests {
             destination: "NYC".to_string(),
             amount: 480.0,
             description: "Delta flight to NYC".to_string(),
+            start_date: "2026-08-15".to_string(),
+            end_date: "2026-08-16".to_string(),
         }
     }
 

@@ -40,6 +40,13 @@ impl<'a> Verdict<'a> {
 }
 
 /// Pure intent match: does this action fit the task the user described?
+///
+/// The date comparison is a plain string comparison, which is chronologically
+/// correct only for the zero-padded `YYYY-MM-DD` form documented on [`Task`].
+/// Enforcing that shape is the job of whoever builds the values — for model
+/// output that is `agent::parse_task_from_prompt` and `agent::action_from_text`,
+/// and for the scripted scenarios it is the constants in `main`. This function
+/// stays a pure comparison so it cannot fail for reasons unrelated to intent.
 pub fn check_intent(task: &Task, action: &ProposedAction) -> Decision {
     if action.destination != task.destination {
         return Decision::blocked(format!(
@@ -55,9 +62,26 @@ pub fn check_intent(task: &Task, action: &ProposedAction) -> Decision {
         ));
     }
 
+    // Travel has to fall inside the window the user stated. Containment rather
+    // than equality: a shorter trip inside the window is still what was asked
+    // for, while a day outside it is travel the user never agreed to pay for.
+    if action.start_date < task.start_date || action.end_date > task.end_date {
+        return Decision::blocked(format!(
+            "travel dates outside task window: action books {} to {} but task allows {} to {}",
+            action.start_date, action.end_date, task.start_date, task.end_date
+        ));
+    }
+
     Decision::approved(format!(
-        "action matches task intent (destination '{}', ${:.2} within ${:.2} budget)",
-        task.destination, action.amount, task.max_budget
+        "action matches task intent (destination '{}', ${:.2} within ${:.2} budget, \
+         {} to {} within {} to {})",
+        task.destination,
+        action.amount,
+        task.max_budget,
+        action.start_date,
+        action.end_date,
+        task.start_date,
+        task.end_date
     ))
 }
 
@@ -133,15 +157,30 @@ mod tests {
             destination: "NYC".to_string(),
             max_budget: 500.0,
             purpose: "hackathon attendance".to_string(),
+            start_date: "2026-08-15".to_string(),
+            end_date: "2026-08-16".to_string(),
         }
     }
 
+    /// An action that is on-window by default, so a test that varies the
+    /// destination or the amount is varying only that.
     fn action(destination: &str, amount: f64) -> ProposedAction {
+        dated_action(destination, amount, "2026-08-15", "2026-08-16")
+    }
+
+    fn dated_action(
+        destination: &str,
+        amount: f64,
+        start_date: &str,
+        end_date: &str,
+    ) -> ProposedAction {
         ProposedAction {
             task_id: "t-1".to_string(),
             destination: destination.to_string(),
             amount,
             description: "flight".to_string(),
+            start_date: start_date.to_string(),
+            end_date: end_date.to_string(),
         }
     }
 
@@ -184,6 +223,83 @@ mod tests {
         let decision = check_intent(&task(), &action("Miami", 750.0));
         assert!(
             decision.reason.contains("destination mismatch"),
+            "{}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn approves_dates_matching_the_task_window() {
+        let on_window = dated_action("NYC", 480.0, "2026-08-15", "2026-08-16");
+        let decision = check_intent(&task(), &on_window);
+        assert_eq!(decision.status, "approved");
+    }
+
+    #[test]
+    fn blocks_departure_before_the_task_window() {
+        let too_early = dated_action("NYC", 480.0, "2026-08-14", "2026-08-16");
+        let decision = check_intent(&task(), &too_early);
+        assert_eq!(decision.status, "blocked");
+        assert!(
+            decision.reason.contains("travel dates outside task window"),
+            "{}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn blocks_return_after_the_task_window() {
+        let too_late = dated_action("NYC", 480.0, "2026-08-15", "2026-08-17");
+        let decision = check_intent(&task(), &too_late);
+        assert_eq!(decision.status, "blocked");
+        assert!(
+            decision.reason.contains("travel dates outside task window"),
+            "{}",
+            decision.reason
+        );
+    }
+
+    /// Containment, not equality: a trip that fits inside the stated window is
+    /// still the trip the user asked for.
+    #[test]
+    fn approves_a_shorter_trip_inside_the_window() {
+        let single_day = dated_action("NYC", 480.0, "2026-08-15", "2026-08-15");
+        assert_eq!(check_intent(&task(), &single_day).status, "approved");
+    }
+
+    /// The month and day are only comparable as strings because the year leads
+    /// and every field is zero-padded. This is the case that would silently
+    /// pass under a naive comparison of unpadded dates.
+    #[test]
+    fn compares_dates_chronologically_across_a_month_boundary() {
+        let next_month = dated_action("NYC", 480.0, "2026-09-01", "2026-09-02");
+        let decision = check_intent(&task(), &next_month);
+        assert_eq!(decision.status, "blocked");
+        assert!(
+            decision.reason.contains("travel dates outside task window"),
+            "{}",
+            decision.reason
+        );
+    }
+
+    #[test]
+    fn budget_check_precedes_date_check() {
+        let both_wrong = dated_action("NYC", 750.0, "2026-08-14", "2026-08-20");
+        let decision = check_intent(&task(), &both_wrong);
+        assert!(
+            decision.reason.contains("over budget"),
+            "{}",
+            decision.reason
+        );
+    }
+
+    /// The approval reason is what the audit log commits to, so it has to state
+    /// every dimension that was actually checked — dates included.
+    #[test]
+    fn approval_reason_records_the_validated_window() {
+        let decision = check_intent(&task(), &action("NYC", 480.0));
+        assert!(
+            decision.reason.contains("2026-08-15") && decision.reason.contains("2026-08-16"),
             "{}",
             decision.reason
         );

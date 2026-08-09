@@ -33,7 +33,36 @@ plain English  ──►  Claude parses a structured Task  ──►  Claude (as
 
 Blocked and escalated actions are anchored on chain too. An audit trail that only recorded approvals would answer the least interesting question; the valuable claim is that the system *refused*, and when.
 
-Only the hash goes on chain — never the task. Destination, budget, and purpose are exactly the private context that makes IntentGuard work, and publishing them would defeat the point. Anyone holding the original task can recompute the digest and prove it matches; the chain alone reveals nothing.
+Only the hash goes on chain — never the task. Destination, budget, purpose, and travel dates are exactly the private context that makes IntentGuard work, and publishing them would defeat the point. Anyone holding the original task can recompute the digest and prove it matches; the chain alone reveals nothing.
+
+### The two shapes
+
+A `Task` is what the user actually said. A `ProposedAction` is what the agent wants to do about it.
+
+```jsonc
+// Task — parsed from plain English, never invented
+{
+  "destination": "NYC",
+  "max_budget": 500.0,
+  "purpose": "hackathon attendance",
+  "start_date": "2026-08-15",   // ISO-8601, the travel window the user stated
+  "end_date":   "2026-08-16"
+}
+
+// ProposedAction — written by the agent, checked against the task above
+{
+  "task_id": "scenario-1",
+  "destination": "NYC",
+  "amount": 480.0,
+  "description": "Delta flight to NYC",
+  "start_date": "2026-08-15",   // must fall inside the task's window
+  "end_date":   "2026-08-16"
+}
+```
+
+`check_intent` enforces three things: the destination matches, the amount is within budget, and the travel dates fall inside the task's window. Dates are structured fields rather than prose inside `description` for one reason — **a date buried in free text can be displayed but not validated**, so an agent booking days the user never asked to pay for would sail through unchallenged.
+
+The window check is containment, not equality: a shorter trip inside the stated days is still the trip that was asked for, while a day outside it is travel the user never agreed to. The comparison is plain string comparison, which is chronologically correct precisely because the dates are zero-padded `YYYY-MM-DD` — a shape the parsing layer enforces before any value reaches the gate.
 
 ## What is genuinely real here
 
@@ -76,14 +105,16 @@ Calling Rain on a blocked or escalated action is not a bug that code review has 
 | | Scenario | What it shows |
 |---|---|---|
 | **0** | Fully live | Natural language → task → agent → decision, nothing scripted but the sentence. Both Claude calls are live and the outcome is not predetermined — this scenario can legitimately come out blocked. That is not a failure of the demo, it *is* the demo. |
-| **1** | Clean approval | Deterministic baseline: hardcoded NYC booking at $480 against a $500 budget. Approved, card issued, charge settled. |
+| **1** | Clean approval | Deterministic baseline: hardcoded NYC booking at $480 against a $500 budget, on the task's dates. Approved, card issued, charge settled. |
 | **1B** | Live agent proposal | Same task as scenario 1, but a real Claude agent writes the action. The gate does not care where the action came from — identical `evaluate` → `execute_rain_flow` path. Falls back to the known-good booking and says so if the call fails. |
-| **2** | Intent mismatch | $450 flight to Miami. Rain's Agent Control Layer would allow this — airline MCC, sane amount, first attempt. Only the task context reveals it is the wrong city. **Blocked before any Rain API call is made.** |
+| **2** | Intent mismatch | $450 flight to Miami, on the right dates and under budget. Rain's Agent Control Layer would allow this — airline MCC, sane amount, first attempt. Only the task context reveals it is the wrong city, and the city is the *only* thing wrong with it: a regression test corrects the destination alone and asserts the same booking then passes, so this scenario stays evidence about one dimension. **Blocked before any Rain API call is made.** |
 | **3** | Non-convergence | The agent keeps trying and keeps failing. Two attempts authorize but are deliberately **never settled** — the card was valid, the booking still did not happen, no money moved. On the third, IntentGuard escalates to human review; that attempt never reaches Rain at all. Each individual action is valid; the *pattern* is the problem. |
 
 ## The no-fabrication guard
 
-`parse_task_from_prompt` has **no fallback**, on purpose. Inventing a destination or a budget the user never gave would fabricate the exact intent this project exists to check. A vague request is an error the caller reports, not a gap to fill in — and the guard is enforced twice: the model is instructed to return `{"error": ...}` when a field is missing, *and* the parser independently rejects an empty destination, a non-finite or non-positive budget, and an empty purpose, in case a model answers in the right shape with nothing in it.
+`parse_task_from_prompt` has **no fallback**, on purpose. Inventing a destination, a budget, or a travel date the user never gave would fabricate the exact intent this project exists to check. A vague request is an error the caller reports, not a gap to fill in — and the guard is enforced twice: the model is instructed to return `{"error": ...}` when a field is missing, *and* the parser independently rejects an empty destination, a non-finite or non-positive budget, an empty purpose, any date that is not a full `YYYY-MM-DD`, and a window that ends before it starts, in case a model answers in the right shape with nothing in it.
+
+Dates are held to that standard strictly: **a month and a day with no year is incomplete.** "August 15th" does not say which August, and picking the nearest one is a guess about what the user meant — the same class of guess the destination and budget rules already forbid. The example request therefore states the year outright, and an interactive request has to carry one too.
 
 Tested live with a deliberately ambiguous prompt:
 
@@ -101,8 +132,8 @@ No task invented, no agent invoked, no Rain call, no money path opened.
 
 | File | Responsibility |
 |---|---|
-| `src/types.rs` | `Task`, `ProposedAction`, `Decision` — the three shapes everything else moves around. |
-| `src/intent_check.rs` | The gate: `check_intent`, the `AttemptTracker` for non-convergence, and `evaluate`, the only function that can mint an `ApprovedAction`. |
+| `src/types.rs` | `Task`, `ProposedAction`, `Decision` — the three shapes everything else moves around. Both travel-bearing types carry `start_date`/`end_date` as ISO-8601 strings. |
+| `src/intent_check.rs` | The gate: `check_intent` (destination, budget, travel window), the `AttemptTracker` for non-convergence, and `evaluate`, the only function that can mint an `ApprovedAction`. |
 | `src/agent.rs` | Both Claude calls — natural language → `Task`, and `Task` → proposed booking — plus the parsing that refuses to guess. |
 | `src/rain_client.rs` | Rain sandbox lifecycle: RSA session id, scoped card issuance, authorize, settle. Takes `&ApprovedAction`. |
 | `src/monad_client.rs` | Decision hashing (keccak256 over task + action + status + reason) and the Monad reads/writes, over one shared provider. |
@@ -111,13 +142,13 @@ No task invented, no agent invoked, no Rain call, no money path opened.
 
 ## Running it
 
-Tests are fully offline — verified by running them in an unshared network namespace, where all 41 still pass:
+Tests are fully offline — verified by running them in an unshared network namespace, where all 57 still pass:
 
 ```bash
-cargo test          # 41 passed; 0 failed — finishes in 0.01s, zero network calls
+cargo test          # 57 passed; 0 failed — finishes in 0.02s, zero network calls
 ```
 
-(12 in `intent_check`, 14 in `agent`, 6 in `monad_client`, 6 in `rain_client`, 3 integration-level in `main`.)
+(19 in `intent_check`, 20 in `agent`, 6 in `monad_client`, 6 in `rain_client`, 6 integration-level in `main`.)
 
 The full demo needs a `.env`:
 
